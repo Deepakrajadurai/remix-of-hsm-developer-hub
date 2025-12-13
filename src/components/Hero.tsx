@@ -58,18 +58,16 @@ export const Hero = () => {
           </div>
 
           {/* Right Column - Visual */}
-          <div className="order-1 lg:order-2 flex justify-center lg:justify-end animate-fade-in absolute right-0 top-1/2 -translate-y-1/2 w-1/2 lg:w-3/5 h-full pointer-events-none hidden lg:flex" style={{ animationDelay: '0.2s' }}>
-            <div className="relative w-full h-full flex items-center justify-end">
-              <img 
-                src={heroNetwork} 
-                alt="Digital connectivity network illustration representing the developer community" 
-                className="w-full h-auto max-w-none object-cover"
-                style={{
-                  maskImage: 'radial-gradient(ellipse 80% 80% at 70% 50%, black 30%, transparent 70%)',
-                  WebkitMaskImage: 'radial-gradient(ellipse 80% 80% at 70% 50%, black 30%, transparent 70%)',
-                }}
-              />
-            </div>
+          <div className="order-1 lg:order-2 animate-fade-in absolute right-0 top-1/2 -translate-y-1/2 w-1/2 lg:w-[55%] pointer-events-none hidden lg:flex items-center justify-end" style={{ animationDelay: '0.2s' }}>
+            <img 
+              src={heroNetwork} 
+              alt="Digital connectivity network illustration representing the developer community" 
+              className="w-full h-auto object-contain"
+              style={{
+                maskImage: 'linear-gradient(to right, transparent 0%, black 25%, black 100%)',
+                WebkitMaskImage: 'linear-gradient(to right, transparent 0%, black 25%, black 100%)',
+              }}
+            />
           </div>
         </div>
       </div>
