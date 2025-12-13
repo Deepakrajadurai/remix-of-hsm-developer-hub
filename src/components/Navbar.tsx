@@ -12,6 +12,7 @@ import {
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { useAuth } from '@/hooks/useAuth';
 import { useTheme } from '@/hooks/useTheme';
+import logo from '@/assets/logo.png';
 
 const navLinks = [
   { name: 'Home', path: '/' },
@@ -42,9 +43,7 @@ export const Navbar = () => {
         <div className="flex items-center justify-between h-16">
           {/* Logo */}
           <Link to="/" className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-lg gradient-button flex items-center justify-center">
-              <span className="text-sm font-bold">H</span>
-            </div>
+            <img src={logo} alt="HSM-Developer Logo" className="h-9 w-9" />
             <span className="font-semibold text-lg">HSM-Developer</span>
           </Link>
 
