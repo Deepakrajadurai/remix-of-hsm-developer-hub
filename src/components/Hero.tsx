@@ -2,24 +2,28 @@ import { Link } from 'react-router-dom';
 import { ArrowRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import heroNetwork from '@/assets/hero-network.png';
+import logo from '@/assets/logo.png';
 
 export const Hero = () => {
   return (
     <section className="relative min-h-screen flex items-center pt-20 bg-background">
       {/* Subtle Background Pattern */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
-        <div className="absolute top-40 left-0 w-96 h-96 bg-accent/5 rounded-full blur-3xl" />
-        <div className="absolute bottom-20 right-1/3 w-72 h-72 bg-primary/5 rounded-full blur-3xl" />
+        <div className="absolute top-40 left-0 w-96 h-96 bg-accent/10 rounded-full blur-3xl" />
+        <div className="absolute bottom-20 right-1/3 w-72 h-72 bg-primary/10 rounded-full blur-3xl" />
       </div>
 
       <div className="container mx-auto px-4 relative z-10">
         <div className="grid lg:grid-cols-2 gap-12 lg:gap-16 items-center">
           {/* Left Column - Text & Actions */}
           <div className="text-left order-2 lg:order-1">
-            {/* Badge */}
-            <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-accent/10 text-accent text-sm font-medium mb-6 animate-fade-in">
-              <span className="w-2 h-2 rounded-full bg-accent animate-pulse" />
-              Open for new members
+            {/* Logo + Badge Row */}
+            <div className="flex items-center gap-4 mb-6 animate-fade-in">
+              <img src={logo} alt="HSM-Developer Community Logo" className="h-16 w-16" />
+              <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-accent/10 text-accent text-sm font-medium">
+                <span className="w-2 h-2 rounded-full bg-accent animate-pulse" />
+                Open for new members
+              </div>
             </div>
 
             {/* Headline */}
