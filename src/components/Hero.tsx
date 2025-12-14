@@ -72,8 +72,8 @@ export const Hero = () => {
                 alt="Digital connectivity network illustration representing the developer community" 
                 className="block dark:hidden w-full h-auto object-contain z-10"
                 style={{
-                  maskImage: 'radial-gradient(circle, black 60%, transparent 100%)',
-                  WebkitMaskImage: 'radial-gradient(circle, black 60%, transparent 100%)',
+                  maskImage: 'radial-gradient(circle, black 50%, transparent 100%)',
+                  WebkitMaskImage: 'radial-gradient(circle, black 50%, transparent 100%)',
                 }}
               />
               
