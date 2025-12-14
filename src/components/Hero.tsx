@@ -59,20 +59,31 @@ export const Hero = () => {
 
           {/* Right Column - Visual */}
           <div className="order-1 lg:order-2 animate-fade-in absolute right-0 top-1/2 -translate-y-1/2 w-[60%] lg:w-[55%] pointer-events-none hidden lg:flex items-center justify-center" style={{ animationDelay: '0.2s' }}>
-            {/* Cyan Glow Backlight */}
-            <div className="absolute w-[80%] aspect-square rounded-full bg-accent/25 blur-3xl" />
-            <div className="absolute w-[60%] aspect-square rounded-full bg-accent/15 blur-2xl" />
+            {/* Cyan Glow Backlight - Enhanced for Light Mode */}
+            <div className="absolute w-[80%] aspect-square rounded-full bg-accent/25 dark:bg-accent/25 blur-3xl opacity-60 dark:opacity-100" />
+            <div className="absolute w-[60%] aspect-square rounded-full bg-accent/40 dark:bg-accent/15 blur-2xl" />
             
-            {/* Network Globe Image */}
-            <img 
-              src={heroNetwork} 
-              alt="Digital connectivity network illustration representing the developer community" 
-              className="relative w-full h-auto object-contain z-10"
-              style={{
-                maskImage: 'radial-gradient(circle, black 40%, transparent 75%)',
-                WebkitMaskImage: 'radial-gradient(circle, black 40%, transparent 75%)',
-              }}
-            />
+            {/* Image Container with Orb Shape */}
+            <div className="relative w-full flex items-center justify-center">
+              {/* Network Globe Image */}
+              <img 
+                src={heroNetwork} 
+                alt="Digital connectivity network illustration representing the developer community" 
+                className="relative w-full h-auto object-contain z-10"
+                style={{
+                  maskImage: 'radial-gradient(circle, black 35%, transparent 70%)',
+                  WebkitMaskImage: 'radial-gradient(circle, black 35%, transparent 70%)',
+                }}
+              />
+              
+              {/* Light Mode Overlay - Fades dark edges to white */}
+              <div 
+                className="absolute inset-0 z-20 dark:hidden pointer-events-none"
+                style={{
+                  background: 'radial-gradient(circle, transparent 30%, hsl(var(--background)) 65%)',
+                }}
+              />
+            </div>
           </div>
         </div>
       </div>
