@@ -28,6 +28,10 @@ const BlogNew = () => {
     }
   }, [user, loading, navigate]);
 
+  const MAX_TITLE_LENGTH = 200;
+  const MAX_EXCERPT_LENGTH = 500;
+  const MAX_CONTENT_LENGTH = 50000;
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
@@ -35,6 +39,33 @@ const BlogNew = () => {
       toast({
         title: 'Missing fields',
         description: 'Please fill in both title and content.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    if (title.trim().length > MAX_TITLE_LENGTH) {
+      toast({
+        title: 'Title too long',
+        description: `Title must be ${MAX_TITLE_LENGTH} characters or less.`,
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    if (excerpt.trim().length > MAX_EXCERPT_LENGTH) {
+      toast({
+        title: 'Excerpt too long',
+        description: `Excerpt must be ${MAX_EXCERPT_LENGTH} characters or less.`,
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    if (content.trim().length > MAX_CONTENT_LENGTH) {
+      toast({
+        title: 'Content too long',
+        description: `Content must be ${MAX_CONTENT_LENGTH.toLocaleString()} characters or less.`,
         variant: 'destructive',
       });
       return;
