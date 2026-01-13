@@ -12,6 +12,9 @@ import Resources from "./pages/Resources";
 import Community from "./pages/Community";
 import Blog from "./pages/Blog";
 import BlogNew from "./pages/BlogNew";
+import Profile from "./pages/Profile";
+import Settings from "./pages/Settings";
+import Legal from "./pages/Legal";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -32,6 +35,11 @@ const App = () => (
               <Route path="/community" element={<Community />} />
               <Route path="/blog" element={<Blog />} />
               <Route path="/blog/new" element={<BlogNew />} />
+              <Route path="/profile" element={<Profile />} />
+              <Route path="/settings" element={<Settings />} />
+              <Route path="/privacy" element={<Legal />} />
+              <Route path="/terms" element={<Legal />} />
+              <Route path="/imprint" element={<Legal />} />
               <Route path="*" element={<NotFound />} />
             </Routes>
           </BrowserRouter>

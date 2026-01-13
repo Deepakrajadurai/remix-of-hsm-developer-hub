@@ -37,7 +37,7 @@ const sampleResources = [
     id: '3',
     title: 'React Starter Template',
     description: 'Production-ready React template with TypeScript, Tailwind, and testing setup.',
-    url: '#',
+    url: 'https://vitejs.dev/guide/',
     category: 'templates',
     icon: 'Layers',
   },
@@ -45,7 +45,7 @@ const sampleResources = [
     id: '4',
     title: 'Algorithms Study Guide',
     description: 'Comprehensive guide to algorithms and data structures for technical interviews.',
-    url: '#',
+    url: 'https://www.geeksforgeeks.org/fundamentals-of-algorithms/',
     category: 'study-guides',
     icon: 'BookOpen',
   },
@@ -53,7 +53,7 @@ const sampleResources = [
     id: '5',
     title: 'REST API Design Guide',
     description: 'Best practices for designing RESTful APIs with examples and patterns.',
-    url: '#',
+    url: 'https://restfulapi.net/',
     category: 'apis',
     icon: 'Database',
   },
@@ -61,7 +61,7 @@ const sampleResources = [
     id: '6',
     title: 'Next.js Full-Stack Template',
     description: 'Complete Next.js template with authentication, database, and deployment setup.',
-    url: '#',
+    url: 'https://vercel.com/templates/next.js',
     category: 'templates',
     icon: 'Code',
   },
@@ -69,7 +69,7 @@ const sampleResources = [
     id: '7',
     title: 'Database Design Patterns',
     description: 'Common database design patterns and when to use them in your projects.',
-    url: '#',
+    url: 'https://www.prisma.io/dataguide',
     category: 'study-guides',
     icon: 'Database',
   },
@@ -77,7 +77,7 @@ const sampleResources = [
     id: '8',
     title: 'GraphQL API Reference',
     description: 'Learn GraphQL from basics to advanced queries and mutations.',
-    url: '#',
+    url: 'https://graphql.org/learn/',
     category: 'apis',
     icon: 'Code',
   },
@@ -110,7 +110,7 @@ const Resources = () => {
   return (
     <div className="min-h-screen bg-background">
       <Navbar />
-      
+
       <main className="pt-24 pb-20">
         <div className="container mx-auto px-4">
           {/* Header */}
@@ -155,19 +155,19 @@ const Resources = () => {
                     <div className="w-12 h-12 rounded-xl bg-accent/10 flex items-center justify-center mb-4 group-hover:bg-accent/20 transition-colors">
                       <IconComponent className="h-6 w-6 text-accent" />
                     </div>
-                    
+
                     <span className="text-xs font-medium text-accent uppercase tracking-wide">
                       {getCategoryLabel(resource.category)}
                     </span>
-                    
+
                     <h3 className="font-semibold text-lg mt-2 mb-2 group-hover:text-accent transition-colors">
                       {resource.title}
                     </h3>
-                    
+
                     <p className="text-sm text-muted-foreground mb-4 line-clamp-2">
                       {resource.description}
                     </p>
-                    
+
                     <a
                       href={resource.url}
                       target="_blank"
