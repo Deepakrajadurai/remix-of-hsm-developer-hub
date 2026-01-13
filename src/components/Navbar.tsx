@@ -53,11 +53,10 @@ export const Navbar = () => {
               <Link
                 key={link.path}
                 to={link.path}
-                className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                  location.pathname === link.path
-                    ? 'text-accent'
-                    : 'text-muted-foreground hover:text-foreground hover:bg-accent/10'
-                }`}
+                className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${location.pathname === link.path
+                  ? 'text-accent'
+                  : 'text-muted-foreground hover:text-foreground hover:bg-accent/10'
+                  }`}
               >
                 {link.name}
               </Link>
@@ -104,14 +103,9 @@ export const Navbar = () => {
                 </DropdownMenuContent>
               </DropdownMenu>
             ) : (
-              <>
-                <Link to="/auth">
-                  <Button variant="ghost">Login</Button>
-                </Link>
-                <Link to="/auth?mode=signup">
-                  <Button variant="gradient">Join Community</Button>
-                </Link>
-              </>
+              <Link to="/auth?mode=signup">
+                <Button variant="gradient">Join Community</Button>
+              </Link>
             )}
           </div>
 
@@ -135,11 +129,10 @@ export const Navbar = () => {
                   key={link.path}
                   to={link.path}
                   onClick={() => setIsOpen(false)}
-                  className={`px-4 py-3 rounded-lg text-sm font-medium transition-colors ${
-                    location.pathname === link.path
-                      ? 'bg-accent/10 text-accent'
-                      : 'text-muted-foreground hover:text-foreground hover:bg-accent/10'
-                  }`}
+                  className={`px-4 py-3 rounded-lg text-sm font-medium transition-colors ${location.pathname === link.path
+                    ? 'bg-accent/10 text-accent'
+                    : 'text-muted-foreground hover:text-foreground hover:bg-accent/10'
+                    }`}
                 >
                   {link.name}
                 </Link>
@@ -149,20 +142,15 @@ export const Navbar = () => {
                   {theme === 'dark' ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
                 </Button>
                 {!user && (
-                  <>
-                    <Link to="/auth" className="flex-1">
-                      <Button variant="ghost" className="w-full">Login</Button>
-                    </Link>
-                    <Link to="/auth?mode=signup" className="flex-1">
-                      <Button variant="gradient" className="w-full">Join</Button>
-                    </Link>
-                  </>
+                  <Link to="/auth?mode=signup" className="flex-1">
+                    <Button variant="gradient" className="w-full">Join Community</Button>
+                  </Link>
                 )}
               </div>
             </div>
           </div>
         )}
       </div>
-    </nav>
+    </nav >
   );
 };
