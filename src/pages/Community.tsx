@@ -3,8 +3,17 @@ import {
   MessageSquare, Users, TrendingUp, ExternalLink, Hash, Star,
   Image as ImageIcon, Send, Plus, Video, Radio, Newspaper,
   Share2, Heart, MessageCircle, MoreHorizontal, Search, RefreshCw, Loader2,
-  Bot, User, LayoutList
+  Bot, User, LayoutList, Copy, Trash2, Flag,
+  Twitter, Facebook, Linkedin, Instagram
 } from 'lucide-react';
+import { supabase } from '@/integrations/supabase/client';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Navbar } from '@/components/Navbar';
 import { Footer } from '@/components/Footer';
 import { Button } from '@/components/ui/button';
@@ -14,7 +23,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogDescription } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
@@ -91,11 +100,9 @@ const Community = () => {
   };
 
   const handleShare = (postId: string) => {
-    navigator.clipboard.writeText(`${window.location.origin}/community/post/${postId}`);
-    toast({
-      title: "Shared!",
-      description: "Post link copied to clipboard.",
-    });
+    setSharePostId(postId);
+    setShareUrl(`${window.location.origin}/community#${postId}`);
+    setShareDialogOpen(true);
   };
 
   const handleProfileClick = (authorId: string, authorName: string) => {
@@ -117,11 +124,21 @@ const Community = () => {
   };
 
   const handleHashtagClick = (hashtag: string) => {
-    setSelectedHashtag(selectedHashtag === hashtag ? null : hashtag);
+    const tag = hashtag.toLowerCase();
+    setSelectedHashtag(selectedHashtag === tag ? null : tag);
   };
 
   // Filter State
   const [activeFilter, setActiveFilter] = useState<'all' | 'news' | 'community' | 'mine'>('all');
+
+  // Report State
+  const [reportDialogOpen, setReportDialogOpen] = useState(false);
+  const [reportPostId, setReportPostId] = useState<string | null>(null);
+
+  // Share State
+  const [shareDialogOpen, setShareDialogOpen] = useState(false);
+  const [sharePostId, setSharePostId] = useState<string | null>(null);
+  const [shareUrl, setShareUrl] = useState('');
 
   // Filter posts based on active filter and selected hashtag
   const displayPosts = posts.filter((post) => {
@@ -193,6 +210,49 @@ const Community = () => {
       // 4. Regular Text
       return <span key={index}>{part}</span>;
     });
+  };
+
+  // Delete Post Handler
+  const handleDeletePost = async (postId: string) => {
+    if (!user) return;
+    const { error } = await supabase.from('posts').delete().eq('id', postId);
+    if (error) {
+      toast({ title: 'Error', description: 'Failed to delete post.', variant: 'destructive' });
+    } else {
+      toast({ title: 'Deleted', description: 'Post deleted successfully.' });
+    }
+  };
+
+  const handleReport = (postId: string) => {
+    setReportPostId(postId);
+    setReportDialogOpen(true);
+  };
+
+  const submitReport = async (reason: string) => {
+    if (!reportPostId || !user) return;
+
+    const { error } = await supabase.from('reports').insert({
+      post_id: reportPostId,
+      reporter_id: user.id,
+      reason: reason
+    });
+
+    if (error) {
+      console.error('Report error:', error);
+      toast({
+        title: "Error submitting report",
+        description: "Please try again later.",
+        variant: "destructive"
+      });
+    } else {
+      toast({
+        title: "Report Submitted",
+        description: "Thank you. We review all reports, and posts with multiple reports are automatically hidden.",
+      });
+    }
+
+    setReportDialogOpen(false);
+    setReportPostId(null);
   };
 
   // News fetching state
@@ -309,6 +369,93 @@ const Community = () => {
                       <DialogFooter>
                         <Button onClick={handleCreateChannel}>Create Channel</Button>
                       </DialogFooter>
+                    </DialogContent>
+                  </Dialog>
+
+                  {/* Report Dialog */}
+                  <Dialog open={reportDialogOpen} onOpenChange={setReportDialogOpen}>
+                    <DialogContent>
+                      <DialogHeader>
+                        <DialogTitle>Report Post</DialogTitle>
+                        <DialogDescription>
+                          Please select a reason for reporting this post. This helps us maintain a safe community.
+                        </DialogDescription>
+                      </DialogHeader>
+                      <div className="grid gap-2 py-4">
+                        {['Sensitive content', 'Sexual harassment', 'False information', 'Inappropriate content', 'Spam or Scam', 'Hate speech'].map((reason) => (
+                          <Button
+                            key={reason}
+                            variant="outline"
+                            className="justify-start text-left h-auto py-3 hover:bg-destructive/10 hover:text-destructive hover:border-destructive/50"
+                            onClick={() => submitReport(reason)}
+                          >
+                            <Flag className="mr-2 h-4 w-4" /> {reason}
+                          </Button>
+                        ))}
+                      </div>
+                      <DialogFooter>
+                        <Button variant="ghost" onClick={() => setReportDialogOpen(false)}>Cancel</Button>
+                      </DialogFooter>
+                    </DialogContent>
+                  </Dialog>
+
+                  {/* Share Dialog */}
+                  <Dialog open={shareDialogOpen} onOpenChange={setShareDialogOpen}>
+                    <DialogContent>
+                      <DialogHeader>
+                        <DialogTitle>Share Post</DialogTitle>
+                        <DialogDescription>
+                          Share this post with your network.
+                        </DialogDescription>
+                      </DialogHeader>
+                      <div className="grid grid-cols-3 gap-4 py-4">
+                        <Button
+                          variant="outline"
+                          className="flex flex-col h-auto py-4 gap-2 hover:bg-green-500/10 hover:text-green-600 hover:border-green-500/50"
+                          onClick={() => window.open(`https://wa.me/?text=${encodeURIComponent(shareUrl)}`, '_blank')}
+                        >
+                          <MessageCircle className="h-6 w-6" /> WhatsApp
+                        </Button>
+                        <Button
+                          variant="outline"
+                          className="flex flex-col h-auto py-4 gap-2 hover:bg-blue-400/10 hover:text-blue-400 hover:border-blue-400/50"
+                          onClick={() => window.open(`https://t.me/share/url?url=${encodeURIComponent(shareUrl)}`, '_blank')}
+                        >
+                          <Send className="h-6 w-6" /> Telegram
+                        </Button>
+                        <Button
+                          variant="outline"
+                          className="flex flex-col h-auto py-4 gap-2 hover:bg-sky-500/10 hover:text-sky-500 hover:border-sky-500/50"
+                          onClick={() => window.open(`https://twitter.com/intent/tweet?url=${encodeURIComponent(shareUrl)}`, '_blank')}
+                        >
+                          <Twitter className="h-6 w-6" /> Twitter
+                        </Button>
+                        <Button
+                          variant="outline"
+                          className="flex flex-col h-auto py-4 gap-2 hover:bg-blue-700/10 hover:text-blue-700 hover:border-blue-700/50"
+                          onClick={() => window.open(`https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(shareUrl)}`, '_blank')}
+                        >
+                          <Linkedin className="h-6 w-6" /> LinkedIn
+                        </Button>
+                        <Button
+                          variant="outline"
+                          className="flex flex-col h-auto py-4 gap-2 hover:bg-pink-600/10 hover:text-pink-600 hover:border-pink-600/50"
+                          onClick={() => window.open(`https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(shareUrl)}`, '_blank')}
+                        >
+                          <Facebook className="h-6 w-6" /> Facebook
+                        </Button>
+                        <Button
+                          variant="outline"
+                          className="flex flex-col h-auto py-4 gap-2"
+                          onClick={() => {
+                            navigator.clipboard.writeText(shareUrl);
+                            toast({ title: "Link Copied", description: "Copied to clipboard" });
+                            setShareDialogOpen(false);
+                          }}
+                        >
+                          <Copy className="h-6 w-6" /> Copy Link
+                        </Button>
+                      </div>
                     </DialogContent>
                   </Dialog>
                 </div>
@@ -516,9 +663,35 @@ const Community = () => {
                           <p className="font-semibold text-sm group-hover:text-accent transition-colors">{post.author_name}</p>
                           <p className="text-xs text-muted-foreground">{formatDistanceToNow(new Date(post.created_at), { addSuffix: true })}</p>
                         </div>
-                        <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground">
-                          <MoreHorizontal className="h-4 w-4" />
-                        </Button>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:bg-muted/20">
+                              <MoreHorizontal className="h-4 w-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end" className="w-40 glass border-border/50">
+                            <DropdownMenuItem onClick={() => {
+                              navigator.clipboard.writeText(window.location.origin + '/community#' + post.id);
+                              toast({ title: "Link Copied", description: "Post link copied to clipboard" });
+                            }}>
+                              <Copy className="mr-2 h-4 w-4" /> Copy Link
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => handleShare(post.id)}>
+                              <Share2 className="mr-2 h-4 w-4" /> Share
+                            </DropdownMenuItem>
+                            <DropdownMenuItem className="text-red-500 focus:text-red-500" onClick={() => handleReport(post.id)}>
+                              <Flag className="mr-2 h-4 w-4" /> Report
+                            </DropdownMenuItem>
+                            {user?.id === post.author_id && (
+                              <>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem className="text-red-500 focus:text-red-500" onClick={() => handleDeletePost(post.id)}>
+                                  <Trash2 className="mr-2 h-4 w-4" /> Delete
+                                </DropdownMenuItem>
+                              </>
+                            )}
+                          </DropdownMenuContent>
+                        </DropdownMenu>
                       </div>
                     </div>
                   </CardHeader>
