@@ -17,6 +17,7 @@ export interface Post {
   created_at: string;
   liked?: boolean;
   hashtags?: string[];
+  is_system_post?: boolean;
 }
 
 export interface ChatMessage {

@@ -2,7 +2,8 @@ import { useState, useRef, useEffect } from 'react';
 import {
   MessageSquare, Users, TrendingUp, ExternalLink, Hash, Star,
   Image as ImageIcon, Send, Plus, Video, Radio, Newspaper,
-  Share2, Heart, MessageCircle, MoreHorizontal, Search, RefreshCw, Loader2
+  Share2, Heart, MessageCircle, MoreHorizontal, Search, RefreshCw, Loader2,
+  Bot, User, LayoutList
 } from 'lucide-react';
 import { Navbar } from '@/components/Navbar';
 import { Footer } from '@/components/Footer';
@@ -119,10 +120,21 @@ const Community = () => {
     setSelectedHashtag(selectedHashtag === hashtag ? null : hashtag);
   };
 
-  // Filter posts by hashtag if selected
-  const displayPosts = selectedHashtag
-    ? posts.filter((post) => post.hashtags?.includes(selectedHashtag))
-    : posts;
+  // Filter State
+  const [activeFilter, setActiveFilter] = useState<'all' | 'news' | 'community' | 'mine'>('all');
+
+  // Filter posts based on active filter and selected hashtag
+  const displayPosts = posts.filter((post) => {
+    // 1. Hashtag Filter
+    if (selectedHashtag && !post.hashtags?.includes(selectedHashtag)) return false;
+
+    // 2. Type Filter
+    if (activeFilter === 'news') return post.is_system_post || post.author_name === '🤖 AI News Bot';
+    if (activeFilter === 'community') return !post.is_system_post && post.author_name !== '🤖 AI News Bot';
+    if (activeFilter === 'mine') return post.author_id === user?.id;
+
+    return true; // 'all'
+  });
 
   // Extract hashtags, links, and bold text for display
   const renderContentWithHashtags = (content: string) => {
@@ -270,7 +282,7 @@ const Community = () => {
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 h-full">
 
           {/* Left Sidebar: Channels & Navigation */}
-          <div className="lg:col-span-3 space-y-6">
+          <div className="lg:col-span-3 space-y-6 lg:sticky lg:top-24 h-fit">
             <Card className="glass border-border/50 h-fit">
               <CardHeader className="pb-3">
                 <div className="flex items-center justify-between">
@@ -443,6 +455,44 @@ const Community = () => {
               </CardContent>
             </Card>
 
+            {/* Filters */}
+            <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
+              <Button
+                variant={activeFilter === 'all' ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => setActiveFilter('all')}
+                className="gap-2"
+              >
+                <LayoutList className="h-4 w-4" /> All
+              </Button>
+              <Button
+                variant={activeFilter === 'news' ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => setActiveFilter('news')}
+                className={`gap-2 ${activeFilter === 'news' ? 'bg-blue-600 hover:bg-blue-700' : 'text-blue-500 border-blue-500/30 hover:bg-blue-500/10'}`}
+              >
+                <Bot className="h-4 w-4" /> AI News
+              </Button>
+              <Button
+                variant={activeFilter === 'community' ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => setActiveFilter('community')}
+                className="gap-2"
+              >
+                <Users className="h-4 w-4" /> Community
+              </Button>
+              {user && (
+                <Button
+                  variant={activeFilter === 'mine' ? 'default' : 'outline'}
+                  size="sm"
+                  onClick={() => setActiveFilter('mine')}
+                  className="gap-2"
+                >
+                  <User className="h-4 w-4" /> My Posts
+                </Button>
+              )}
+            </div>
+
             {/* Feed */}
             <div className="space-y-4">
               {displayPosts.map((post) => (
@@ -523,7 +573,7 @@ const Community = () => {
           </div>
 
           {/* Right Sidebar: Chat & Trending */}
-          <div className="lg:col-span-3 space-y-6">
+          <div className="lg:col-span-3 space-y-6 lg:sticky lg:top-24 h-fit">
 
             {/* Live Chat */}
             <Card className="glass border-border/50 flex flex-col h-[500px]">
