@@ -1,8 +1,8 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import {
   MessageSquare, Users, TrendingUp, ExternalLink, Hash, Star,
   Image as ImageIcon, Send, Plus, Video, Radio, Newspaper,
-  Share2, Heart, MessageCircle, MoreHorizontal, Search, RefreshCw
+  Share2, Heart, MessageCircle, MoreHorizontal, Search, RefreshCw, Loader2
 } from 'lucide-react';
 import { Navbar } from '@/components/Navbar';
 import { Footer } from '@/components/Footer';
@@ -15,84 +15,12 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
-import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/use-toast';
-
-// --- Mock Data ---
-
-const initialChannels = [
-  { id: 'general', name: 'General', type: 'text' },
-  { id: 'ai-news', name: 'AI News & Tech', type: 'news' },
-  { id: 'memes', name: 'Tech Memes', type: 'media' },
-  { id: 'projects', name: 'Project Showcase', type: 'text' },
-  { id: 'help', name: 'Dev Help', type: 'text' },
-];
-
-const initialPosts = [
-  {
-    id: 1,
-    author: 'Sarah Miller',
-    avatar: 'https://i.pravatar.cc/150?u=sarah',
-    content: 'Just tried the new React Compiler. It is absolutely mind-blowing how much it optimizes automatically! 🤯 #react #frontend',
-    likes: 45,
-    comments: 12,
-    timestamp: '2 hours ago',
-    channel: 'general',
-    image: null
-  },
-  {
-    id: 2,
-    author: 'TechNews Bot',
-    avatar: '',
-    content: 'BREAKING: Agentic AI is moving from experimental to production! Narrow applications with defined memory boundaries are transforming manufacturing workflows. 🤖 #AgenticAI #TechNews',
-    likes: 128,
-    comments: 34,
-    timestamp: '4 hours ago',
-    channel: 'ai-news',
-    image: 'https://images.unsplash.com/photo-1677442136019-21780ecad995?q=80&w=1000&auto=format&fit=crop'
-  },
-  {
-    id: 3,
-    author: 'TechNews Bot',
-    avatar: '',
-    content: 'INFRASTRUCTURE: Meta launched "Meta Compute" to manage multi-gigawatt scale AI scale. Microsoft also announced "Community-First AI" to focus on responsible data center dev. ⚡ #Meta #Microsoft #Sustainability',
-    likes: 89,
-    comments: 15,
-    timestamp: '5 hours ago',
-    channel: 'ai-news',
-    image: 'https://images.unsplash.com/photo-1550751827-4bd374c3f58b?q=80&w=2070&auto=format&fit=crop'
-  },
-  {
-    id: 4,
-    author: 'TechNews Bot',
-    avatar: '',
-    content: 'HEALTHCARE: New generative AI system CytoDiffusion identifies leukemia cells with extreme accuracy and recognizes its own uncertainty. A huge step for clinical support! 🏥 #AIHealth #MedicalTech',
-    likes: 256,
-    comments: 42,
-    timestamp: '6 hours ago',
-    channel: 'ai-news',
-    image: 'https://images.unsplash.com/photo-1576086213369-97a306d36557?q=80&w=2080&auto=format&fit=crop'
-  },
-  {
-    id: 5,
-    author: 'Dev Joker',
-    avatar: 'https://i.pravatar.cc/150?u=joker',
-    content: 'When you fix a bug in production without testing it locally...',
-    likes: 342,
-    comments: 15,
-    timestamp: '7 hours ago',
-    channel: 'memes',
-    image: 'https://images.unsplash.com/photo-1531297461136-82lw8e2c870e?q=80&w=2670&auto=format&fit=crop'
-  }
-];
-
-const initialChatMessages = [
-  { id: 1, user: 'Alex', text: 'Anyone joining the hackathon next month?' },
-  { id: 2, user: 'Sam', text: 'I am! Looking for a team.' },
-  { id: 3, user: 'Jordan', text: 'Me too, lets connect.' },
-];
+import { useCommunity } from '@/hooks/useCommunity';
+import { formatDistanceToNow } from 'date-fns';
+import { fetchAITechNews, formatNewsForPost } from '@/services/newsService';
 
 const Community = () => {
   const { user } = useAuth();
@@ -100,21 +28,32 @@ const Community = () => {
   const navigate = useNavigate();
 
   // State
-  const [channels, setChannels] = useState(initialChannels);
   const [activeChannel, setActiveChannel] = useState('general');
-  const [posts, setPosts] = useState(initialPosts.map(p => ({ ...p, liked: false })));
-  const [chatMessages, setChatMessages] = useState(initialChatMessages);
   const [newPostContent, setNewPostContent] = useState('');
   const [newPostImage, setNewPostImage] = useState('');
   const [chatInput, setChatInput] = useState('');
-  const [isLive, setIsLive] = useState(true); // Simulate a live session active
-  const [fetchingNews, setFetchingNews] = useState(false);
+  const [selectedHashtag, setSelectedHashtag] = useState<string | null>(null);
 
   // Create Channel State
   const [isCreateChannelOpen, setIsCreateChannelOpen] = useState(false);
   const [newChannelName, setNewChannelName] = useState('');
+  const [newChannelType, setNewChannelType] = useState('text');
 
   const chatScrollRef = useRef<HTMLDivElement>(null);
+
+  // Use the real-time community hook
+  const {
+    posts,
+    chatMessages,
+    channels,
+    trendingHashtags,
+    loading,
+    onlineUsers,
+    createPost,
+    toggleLike,
+    sendMessage,
+    createChannel,
+  } = useCommunity(activeChannel);
 
   // Auto-scroll chat
   useEffect(() => {
@@ -123,122 +62,141 @@ const Community = () => {
     }
   }, [chatMessages]);
 
-  const refreshNews = async () => {
-    setFetchingNews(true);
-    // Simulate real-world API fetch
-    await new Promise(resolve => setTimeout(resolve, 1500));
-
-    const latestNews = [
-      {
-        id: Date.now(),
-        author: 'TechNews Bot',
-        avatar: '',
-        content: 'ROBOTICS: Boston Dynamics\' Atlas humanoid robots are currently undergoing field tests at Hyundai plants for roof rack sorting! 🤖🏭 #Robotics #Innovation',
-        likes: 0,
-        comments: 0,
-        timestamp: 'Just now',
-        channel: 'ai-news',
-        image: 'https://images.unsplash.com/photo-1531746790731-6c087fecd05a?q=80&w=2012&auto=format&fit=crop',
-        liked: false
-      }
-    ];
-
-    setPosts(prev => [...latestNews, ...prev]);
-    setFetchingNews(false);
-    toast({
-      title: "News Updated",
-      description: "Retrieved the latest tech & AI news from global sources.",
-    });
-  };
-
-  const handleCreatePost = () => {
+  const handleCreatePost = async () => {
     if (!newPostContent.trim()) return;
-
-    const newPost = {
-      id: posts.length + 1,
-      author: user?.user_metadata?.full_name || 'Anonymous User',
-      avatar: user?.user_metadata?.avatar_url || '',
-      content: newPostContent,
-      likes: 0,
-      comments: 0,
-      timestamp: 'Just now',
-      channel: activeChannel,
-      image: newPostImage || null,
-      liked: false
-    };
-
-    setPosts([newPost, ...posts]);
+    await createPost(newPostContent, newPostImage || undefined);
     setNewPostContent('');
     setNewPostImage('');
-    toast({ title: "Post published!", description: "Your update is now live." });
   };
 
-  const handleCreateChannel = () => {
+  const handleCreateChannel = async () => {
     if (!newChannelName.trim()) return;
-    const id = newChannelName.toLowerCase().replace(/\s+/g, '-');
-    setChannels([...channels, { id, name: newChannelName, type: 'text' }]);
+    await createChannel(newChannelName, newChannelType);
     setNewChannelName('');
+    setNewChannelType('text');
     setIsCreateChannelOpen(false);
-    setActiveChannel(id);
-    toast({ title: "Channel created!", description: `#${newChannelName} is ready.` });
   };
 
-  const handleLike = (postId: number) => {
-    setPosts(posts.map(post => {
-      if (post.id === postId) {
-        return {
-          ...post,
-          likes: post.liked ? post.likes - 1 : post.likes + 1,
-          liked: !post.liked
-        };
-      }
-      return post;
-    }));
+  const handleLike = async (postId: string) => {
+    await toggleLike(postId);
   };
 
-  const handleComment = (postId: number) => {
+  const handleComment = (postId: string) => {
     toast({
       title: "Comments",
-      description: "Comment section opening... (Feature coming soon!)",
+      description: "Comment section coming soon!",
     });
   };
 
-  const handleShare = (postId: number) => {
+  const handleShare = (postId: string) => {
+    navigator.clipboard.writeText(`${window.location.origin}/community/post/${postId}`);
     toast({
       title: "Shared!",
       description: "Post link copied to clipboard.",
     });
   };
 
-  const handleProfileClick = (author: string) => {
-    const isCurrentUser = author === user?.user_metadata?.full_name || author === 'Anonymous User' || author === 'Me';
-
-    if (isCurrentUser) {
+  const handleProfileClick = (authorId: string, authorName: string) => {
+    if (authorId === user?.id) {
       navigate('/profile');
     } else {
       toast({
-        title: `${author}'s Profile`,
-        description: `Viewing profile for ${author}. (Full profiles coming soon!)`,
+        title: `${authorName}'s Profile`,
+        description: `Viewing profile for ${authorName}. (Full profiles coming soon!)`,
       });
     }
   };
 
-  const handleSendMessage = (e: React.FormEvent) => {
+  const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!chatInput.trim()) return;
-
-    setChatMessages([...chatMessages, {
-      id: chatMessages.length + 1,
-      user: user?.user_metadata?.full_name?.split(' ')[0] || 'Me',
-      text: chatInput
-    }]);
+    await sendMessage(chatInput);
     setChatInput('');
   };
 
-  const filteredPosts = activeChannel === 'all' ? posts : posts.filter(p => p.channel === activeChannel || (activeChannel === 'general' && p.channel !== 'memes' && p.channel !== 'ai-news')); // General shows mixed content excluding specific feeds maybe? Let's just filter strictly or loosely.
+  const handleHashtagClick = (hashtag: string) => {
+    setSelectedHashtag(selectedHashtag === hashtag ? null : hashtag);
+  };
 
-  // Let's refine the filter: if 'general', show everything except maybe meme dumps? Let's keep strict filtering for now for clarity
-  const displayPosts = activeChannel === 'general' ? posts : posts.filter(p => p.channel === activeChannel);
+  // Filter posts by hashtag if selected
+  const displayPosts = selectedHashtag
+    ? posts.filter((post) => post.hashtags?.includes(selectedHashtag))
+    : posts;
+
+  // Extract hashtags from content for display
+  const renderContentWithHashtags = (content: string) => {
+    const parts = content.split(/(#\w+)/g);
+    return parts.map((part, index) => {
+      if (part.startsWith('#')) {
+        const tag = part.slice(1);
+        return (
+          <span
+            key={index}
+            className="text-accent font-semibold cursor-pointer hover:underline"
+            onClick={() => handleHashtagClick(tag)}
+          >
+            {part}
+          </span>
+        );
+      }
+      return part;
+    });
+  };
+
+  // News fetching state
+  const [fetchingNews, setFetchingNews] = useState(false);
+
+  // Fetch and post AI news
+  const handleFetchNews = async () => {
+    if (!user) {
+      toast({
+        title: "Sign in required",
+        description: "Please sign in to fetch news",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    setFetchingNews(true);
+
+    try {
+      const articles = await fetchAITechNews();
+
+      if (articles.length === 0) {
+        toast({
+          title: "No news found",
+          description: "Unable to fetch news at this time. Please try again later.",
+          variant: "destructive"
+        });
+        return;
+      }
+
+      // Post 3-5 random articles to the ai-news channel
+      const numArticles = Math.min(articles.length, Math.floor(Math.random() * 3) + 3);
+      const selectedArticles = articles.slice(0, numArticles);
+
+      for (const article of selectedArticles) {
+        const { content, imageUrl } = formatNewsForPost(article);
+        await createPost(content, imageUrl);
+        // Small delay between posts to avoid rate limiting
+        await new Promise(resolve => setTimeout(resolve, 500));
+      }
+
+      toast({
+        title: "News synced!",
+        description: `Posted ${numArticles} latest AI & tech news articles.`,
+      });
+    } catch (error) {
+      console.error('News fetch error:', error);
+      toast({
+        title: "Error fetching news",
+        description: "Something went wrong. Please try again.",
+        variant: "destructive"
+      });
+    } finally {
+      setFetchingNews(false);
+    }
+  };
 
   return (
     <div className="min-h-screen bg-background text-foreground">
@@ -337,18 +295,28 @@ const Community = () => {
                   <p className="text-xs text-muted-foreground">Community & Tech Feed</p>
                 </div>
               </div>
-              {activeChannel === 'ai-news' && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="gap-2"
-                  onClick={refreshNews}
-                  disabled={fetchingNews}
-                >
-                  <RefreshCw className={`h-4 w-4 ${fetchingNews ? 'animate-spin' : ''}`} />
-                  {fetchingNews ? 'Retrieving...' : 'Sync News'}
-                </Button>
-              )}
+              <div className="flex items-center gap-2">
+                {selectedHashtag && (
+                  <Badge variant="secondary" className="gap-2">
+                    Filtering by #{selectedHashtag}
+                    <button onClick={() => setSelectedHashtag(null)} className="ml-1 hover:text-accent">
+                      ×
+                    </button>
+                  </Badge>
+                )}
+                {activeChannel === 'ai-news' && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="gap-2"
+                    onClick={handleFetchNews}
+                    disabled={fetchingNews}
+                  >
+                    <RefreshCw className={`h-4 w-4 ${fetchingNews ? 'animate-spin' : ''}`} />
+                    {fetchingNews ? 'Syncing...' : 'Sync AI News'}
+                  </Button>
+                )}
+              </div>
             </div>
 
             {/* Create Post Widget */}
@@ -418,21 +386,21 @@ const Community = () => {
                   <CardHeader className="flex flex-row items-start gap-4 pb-2">
                     <div
                       className="cursor-pointer hover:opacity-80 transition-opacity"
-                      onClick={() => handleProfileClick(post.author)}
+                      onClick={() => handleProfileClick(post.author_id, post.author_name)}
                     >
                       <Avatar>
-                        <AvatarImage src={post.avatar} />
-                        <AvatarFallback>{post.author[0]}</AvatarFallback>
+                        <AvatarImage src={post.author_avatar || undefined} />
+                        <AvatarFallback>{post.author_name[0]}</AvatarFallback>
                       </Avatar>
                     </div>
                     <div className="flex-1">
                       <div className="flex items-center justify-between">
                         <div
                           className="cursor-pointer group"
-                          onClick={() => handleProfileClick(post.author)}
+                          onClick={() => handleProfileClick(post.author_id, post.author_name)}
                         >
-                          <p className="font-semibold text-sm group-hover:text-accent transition-colors">{post.author}</p>
-                          <p className="text-xs text-muted-foreground">{post.timestamp}</p>
+                          <p className="font-semibold text-sm group-hover:text-accent transition-colors">{post.author_name}</p>
+                          <p className="text-xs text-muted-foreground">{formatDistanceToNow(new Date(post.created_at), { addSuffix: true })}</p>
                         </div>
                         <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground">
                           <MoreHorizontal className="h-4 w-4" />
@@ -441,10 +409,12 @@ const Community = () => {
                     </div>
                   </CardHeader>
                   <CardContent className="pb-2">
-                    <p className="text-sm md:text-base leading-relaxed whitespace-pre-wrap">{post.content}</p>
-                    {post.image && (
+                    <p className="text-sm md:text-base leading-relaxed whitespace-pre-wrap">
+                      {renderContentWithHashtags(post.content)}
+                    </p>
+                    {post.image_url && (
                       <div className="mt-3 rounded-xl overflow-hidden border border-border/50">
-                        <img src={post.image} alt="Post content" className="w-full h-auto object-cover max-h-[400px]" />
+                        <img src={post.image_url} alt="Post content" className="w-full h-auto object-cover max-h-[400px]" />
                       </div>
                     )}
                   </CardContent>
@@ -464,7 +434,7 @@ const Community = () => {
                         className="gap-2 hover:text-blue-500"
                         onClick={() => handleComment(post.id)}
                       >
-                        <MessageCircle className="h-4 w-4" /> {post.comments}
+                        <MessageCircle className="h-4 w-4" /> {post.comments_count}
                       </Button>
                       <Button
                         variant="ghost"
@@ -499,7 +469,7 @@ const Community = () => {
                   <CardTitle className="text-base">Community Chat</CardTitle>
                 </div>
                 <CardDescription className="text-xs">
-                  {34} users online
+                  {onlineUsers} users online
                 </CardDescription>
               </CardHeader>
               <CardContent className="flex-1 p-0 overflow-hidden relative">
@@ -507,8 +477,8 @@ const Community = () => {
                   <div className="space-y-4">
                     {chatMessages.map(msg => (
                       <div key={msg.id} className="flex gap-2 items-start text-sm">
-                        <span className="font-bold text-accent shrink-0">{msg.user}:</span>
-                        <span className="text-muted-foreground break-words">{msg.text}</span>
+                        <span className="font-bold text-accent shrink-0">{msg.user_name}:</span>
+                        <span className="text-muted-foreground break-words">{msg.message}</span>
                       </div>
                     ))}
                   </div>
@@ -537,12 +507,24 @@ const Community = () => {
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
-                {['React19', 'AI_Revolution', 'DevLife', 'Web3', 'SystemDesign'].map(tag => (
-                  <div key={tag} className="flex justify-between items-center text-sm cursor-pointer hover:text-accent">
-                    <span className="font-medium text-muted-foreground">#{tag}</span>
-                    <span className="text-xs text-muted-foreground/50">1.2k posts</span>
+                {loading ? (
+                  <div className="flex items-center justify-center py-4">
+                    <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
                   </div>
-                ))}
+                ) : trendingHashtags.length > 0 ? (
+                  trendingHashtags.map(tag => (
+                    <div
+                      key={tag.id}
+                      className="flex justify-between items-center text-sm cursor-pointer hover:text-accent transition-colors"
+                      onClick={() => handleHashtagClick(tag.name)}
+                    >
+                      <span className="font-medium text-muted-foreground">#{tag.name}</span>
+                      <span className="text-xs text-muted-foreground/50">{tag.post_count} posts</span>
+                    </div>
+                  ))
+                ) : (
+                  <p className="text-xs text-muted-foreground text-center py-4">No trending hashtags yet</p>
+                )}
               </CardContent>
             </Card>
 
