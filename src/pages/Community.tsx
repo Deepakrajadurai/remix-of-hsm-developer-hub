@@ -124,23 +124,62 @@ const Community = () => {
     ? posts.filter((post) => post.hashtags?.includes(selectedHashtag))
     : posts;
 
-  // Extract hashtags from content for display
+  // Extract hashtags, links, and bold text for display
   const renderContentWithHashtags = (content: string) => {
-    const parts = content.split(/(#\w+)/g);
+    if (!content) return null;
+
+    // Split by URLs, Hashtags (#word), and Bold (**text**)
+    // Using capturing groups to include the separators in the result
+    const parts = content.split(/(https?:\/\/[^\s]+)|(#\w+)|(\*\*.*?\*\*)/g);
+
     return parts.map((part, index) => {
+      // Filter out undefined parts from regex capturing groups
+      if (!part) return null;
+
+      // 1. Handle URLs (Linkify)
+      if (part.match(/^https?:\/\//)) {
+        return (
+          <a
+            key={index}
+            href={part}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-blue-400 hover:text-blue-300 hover:underline break-all"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {part}
+          </a>
+        );
+      }
+
+      // 2. Handle Hashtags
       if (part.startsWith('#')) {
         const tag = part.slice(1);
         return (
           <span
             key={index}
             className="text-accent font-semibold cursor-pointer hover:underline"
-            onClick={() => handleHashtagClick(tag)}
+            onClick={(e) => {
+              e.stopPropagation();
+              handleHashtagClick(tag);
+            }}
           >
             {part}
           </span>
         );
       }
-      return part;
+
+      // 3. Handle Bold Text (**text**)
+      if (part.startsWith('**') && part.endsWith('**') && part.length > 4) {
+        return (
+          <strong key={index} className="font-bold text-foreground">
+            {part.slice(2, -2)}
+          </strong>
+        );
+      }
+
+      // 4. Regular Text
+      return <span key={index}>{part}</span>;
     });
   };
 
