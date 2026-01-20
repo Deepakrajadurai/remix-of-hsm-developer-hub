@@ -45,7 +45,7 @@ export interface Hashtag {
 export const useCommunity = (activeChannel: string = 'general') => {
   const { user } = useAuth();
   const { toast } = useToast();
-  
+
   const [posts, setPosts] = useState<Post[]>([]);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [channels, setChannels] = useState<Channel[]>([]);
@@ -73,9 +73,9 @@ export const useCommunity = (activeChannel: string = 'general') => {
               .from('post_hashtags')
               .select('hashtags(name)')
               .eq('post_id', newPost.id);
-            
+
             newPost.hashtags = hashtagData?.map((h: any) => h.hashtags.name) || [];
-            
+
             setPosts((current) => [newPost, ...current]);
           }
         )
@@ -144,13 +144,13 @@ export const useCommunity = (activeChannel: string = 'general') => {
   useEffect(() => {
     const fetchData = async () => {
       setLoading(true);
-      
+
       // Fetch channels
       const { data: channelsData } = await supabase
         .from('channels')
         .select('*')
         .order('created_at', { ascending: true });
-      
+
       if (channelsData) setChannels(channelsData);
 
       // Fetch posts with hashtags
@@ -177,7 +177,7 @@ export const useCommunity = (activeChannel: string = 'general') => {
             .eq('user_id', user.id);
 
           const likedPostIds = new Set(likesData?.map((l) => l.post_id) || []);
-          
+
           setPosts(
             postsWithHashtags.map((post: Post) => ({
               ...post,
@@ -249,6 +249,37 @@ export const useCommunity = (activeChannel: string = 'general') => {
     },
     [user, activeChannel, toast]
   );
+
+  // Create a news post (appears from AI News Bot, not the user)
+  const createNewsPost = useCallback(
+    async (content: string, imageUrl?: string) => {
+      if (!user) {
+        toast({
+          title: 'Authentication required',
+          description: 'Please sign in to sync news',
+          variant: 'destructive',
+        });
+        return;
+      }
+
+      const { error } = await supabase.from('posts').insert({
+        author_id: null, // No specific author for news posts
+        author_name: '🤖 AI News Bot',
+        author_avatar: 'https://api.dicebear.com/7.x/bottts/svg?seed=ainews',
+        content,
+        channel_id: activeChannel,
+        image_url: imageUrl || null,
+        is_system_post: true,
+      });
+
+      if (error) {
+        console.error('Error creating news post:', error);
+        throw error; // Let the caller handle the error
+      }
+    },
+    [user, activeChannel, toast]
+  );
+
 
   // Toggle like on a post
   const toggleLike = useCallback(
@@ -370,7 +401,7 @@ export const useCommunity = (activeChannel: string = 'general') => {
   );
 
   // Filter posts by channel
-  const filteredPosts = posts.filter((post) => 
+  const filteredPosts = posts.filter((post) =>
     activeChannel === 'general' ? true : post.channel_id === activeChannel
   );
 
@@ -382,6 +413,7 @@ export const useCommunity = (activeChannel: string = 'general') => {
     loading,
     onlineUsers,
     createPost,
+    createNewsPost,
     toggleLike,
     sendMessage,
     createChannel,

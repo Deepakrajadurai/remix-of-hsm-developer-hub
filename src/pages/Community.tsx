@@ -50,6 +50,7 @@ const Community = () => {
     loading,
     onlineUsers,
     createPost,
+    createNewsPost,
     toggleLike,
     sendMessage,
     createChannel,
@@ -160,7 +161,10 @@ const Community = () => {
     setFetchingNews(true);
 
     try {
+      console.log('🔄 Starting news fetch...');
       const articles = await fetchAITechNews();
+
+      console.log(`📰 Received ${articles.length} articles`);
 
       if (articles.length === 0) {
         toast({
@@ -168,23 +172,44 @@ const Community = () => {
           description: "Unable to fetch news at this time. Please try again later.",
           variant: "destructive"
         });
+        setFetchingNews(false);
         return;
       }
 
-      // Post 3-5 random articles to the ai-news channel
-      const numArticles = Math.min(articles.length, Math.floor(Math.random() * 3) + 3);
+      // Post 8-12 articles for a rich feed
+      const numArticles = Math.min(articles.length, Math.floor(Math.random() * 5) + 8);
       const selectedArticles = articles.slice(0, numArticles);
 
-      for (const article of selectedArticles) {
-        const { content, imageUrl } = formatNewsForPost(article);
-        await createPost(content, imageUrl);
-        // Small delay between posts to avoid rate limiting
-        await new Promise(resolve => setTimeout(resolve, 500));
+      console.log(`📝 Posting ${numArticles} articles...`);
+
+      let successCount = 0;
+      let errorCount = 0;
+
+      for (let i = 0; i < selectedArticles.length; i++) {
+        const article = selectedArticles[i];
+        try {
+          const { content, imageUrl } = formatNewsForPost(article);
+          console.log(`  ${i + 1}/${numArticles}: Posting "${article.title.substring(0, 50)}..."`);
+
+          await createNewsPost(content, imageUrl);
+          successCount++;
+
+          // Small delay between posts
+          await new Promise(resolve => setTimeout(resolve, 300));
+        } catch (postError) {
+          console.error(`  ❌ Error posting article ${i + 1}:`, postError);
+          errorCount++;
+        }
+      }
+
+      console.log(`✅ Posted ${successCount} articles successfully`);
+      if (errorCount > 0) {
+        console.log(`⚠️ ${errorCount} articles failed to post`);
       }
 
       toast({
         title: "News synced!",
-        description: `Posted ${numArticles} latest AI & tech news articles.`,
+        description: `Posted ${successCount} latest AI & tech news articles.`,
       });
     } catch (error) {
       console.error('News fetch error:', error);
