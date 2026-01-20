@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { supabase } from '@/integrations/supabase/client';
 import { Calendar, MapPin, Users, Filter, ArrowRight, Share2, Heart } from 'lucide-react';
 import { Navbar } from '@/components/Navbar';
 import { Footer } from '@/components/Footer';
@@ -93,23 +94,37 @@ const formatDate = (dateString: string) => {
 };
 
 const Events = () => {
+  const [events, setEvents] = useState<any[]>([]);
   const [activeFilter, setActiveFilter] = useState('all');
-  const [selectedEvent, setSelectedEvent] = useState<string | null>(null);
+  const [selectedEvent, setSelectedEvent] = useState<any | null>(null); // For Registration
   const [isDialogOpen, setIsDialogOpen] = useState(false);
-  const [detailEvent, setDetailEvent] = useState<typeof sampleEvents[0] | null>(null);
+  const [detailEvent, setDetailEvent] = useState<any | null>(null); // For Details
   const [isDetailOpen, setIsDetailOpen] = useState(false);
   const { toast } = useToast();
 
-  const filteredEvents = activeFilter === 'all'
-    ? sampleEvents
-    : sampleEvents.filter((event) => event.event_type === activeFilter);
+  useEffect(() => {
+    const fetchEvents = async () => {
+      const { data, error } = await supabase.from('events').select('*').order('event_date', { ascending: true });
+      if (data) {
+        setEvents(data);
+      }
+      if (error) {
+        toast({ title: "Error", description: "Failed to load events", variant: "destructive" });
+      }
+    };
+    fetchEvents();
+  }, [toast]);
 
-  const handleRegister = (eventName: string) => {
-    setSelectedEvent(eventName);
+  const filteredEvents = activeFilter === 'all'
+    ? events
+    : events.filter((event) => event.event_type === activeFilter);
+
+  const handleRegister = (event: any) => {
+    setSelectedEvent(event);
     setIsDialogOpen(true);
   };
 
-  const handleViewDetails = (event: typeof sampleEvents[0]) => {
+  const handleViewDetails = (event: any) => {
     setDetailEvent(event);
     setIsDetailOpen(true);
   };
@@ -223,7 +238,7 @@ const Events = () => {
                         <Button
                           onClick={(e) => {
                             e.stopPropagation();
-                            handleRegister(event.title);
+                            handleRegister(event);
                           }}
                           className="group-hover:translate-x-1 transition-transform"
                         >
@@ -255,7 +270,7 @@ const Events = () => {
         <EventRegistrationDialog
           open={isDialogOpen}
           onOpenChange={setIsDialogOpen}
-          eventTitle={selectedEvent}
+          event={selectedEvent}
         />
       )}
 
@@ -264,7 +279,7 @@ const Events = () => {
           open={isDetailOpen}
           onOpenChange={setIsDetailOpen}
           event={detailEvent}
-          onRegister={() => handleRegister(detailEvent.title)}
+          onRegister={() => handleRegister(detailEvent)}
         />
       )}
     </div>

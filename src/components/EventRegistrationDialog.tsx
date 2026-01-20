@@ -5,15 +5,18 @@ import { Label } from "@/components/ui/label";
 import { useState } from "react";
 import { Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/hooks/useAuth";
 
 interface EventRegistrationDialogProps {
     open: boolean;
     onOpenChange: (open: boolean) => void;
-    eventTitle: string;
+    event: { id: string; title: string; price: string; } | null;
 }
 
-export function EventRegistrationDialog({ open, onOpenChange, eventTitle }: EventRegistrationDialogProps) {
+export function EventRegistrationDialog({ open, onOpenChange, event }: EventRegistrationDialogProps) {
     const { toast } = useToast();
+    const { user } = useAuth();
     const [loading, setLoading] = useState(false);
     const [formData, setFormData] = useState({
         name: '',
@@ -25,29 +28,71 @@ export function EventRegistrationDialog({ open, onOpenChange, eventTitle }: Even
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
+        if (!event) return;
         setLoading(true);
 
-        // Simulate API call
-        await new Promise(resolve => setTimeout(resolve, 1500));
+        try {
+            // 1. Insert Registration into Database
+            const { data, error } = await supabase
+                .from('event_registrations')
+                .insert({
+                    event_id: event.id,
+                    user_id: user?.id, // Optional, can be null for guests
+                    first_name: formData.name,
+                    last_name: formData.surname,
+                    email: formData.email,
+                    attendees_count: parseInt(formData.attendees)
+                })
+                .select()
+                .single();
 
-        setLoading(false);
-        onOpenChange(false);
+            if (error) throw error;
 
-        // Simulate email trigger
-        toast({
-            title: "Registration Successful!",
-            description: `Ticket for "${eventTitle}" has been sent to ${formData.email}.`,
-        });
+            console.log("Registration successful:", data);
+            toast({ title: "Registration Confirmed", description: "Sending ticket email..." });
 
-        if (formData.alternateEmail) {
-            setTimeout(() => {
+            // 2. Trigger Email via Edge Function (Client-Side)
+            const { error: funcError } = await supabase.functions.invoke('send-ticket', {
+                body: { record: data }
+            });
+
+            if (funcError) {
+                console.error("Edge Function Error:", funcError);
                 toast({
-                    title: "Ticket Shared",
-                    description: `A copy of the ticket was also sent to ${formData.alternateEmail}.`,
+                    title: "Registration Saved",
+                    description: "But failed to send email. Please check your network or try again later.",
+                    variant: "destructive"
                 });
-            }, 1000);
+            } else {
+                toast({
+                    title: "Success!",
+                    description: `Ticket for "${event.title}" has been sent to ${formData.email}.`,
+                });
+            }
+
+            if (formData.alternateEmail) {
+                setTimeout(() => {
+                    toast({
+                        title: "Ticket Shared",
+                        description: `A copy was also sent to ${formData.alternateEmail}.`,
+                    });
+                }, 1000);
+            }
+
+            onOpenChange(false);
+        } catch (error: any) {
+            console.error(error);
+            toast({
+                title: "Registration Failed",
+                description: error.message || "Something went wrong. Please try again.",
+                variant: "destructive"
+            });
+        } finally {
+            setLoading(false);
         }
     };
+
+    if (!event) return null;
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
@@ -55,13 +100,13 @@ export function EventRegistrationDialog({ open, onOpenChange, eventTitle }: Even
                 <DialogHeader>
                     <DialogTitle>Register for Event</DialogTitle>
                     <DialogDescription>
-                        {eventTitle}
+                        {event.title} • {event.price}
                     </DialogDescription>
                 </DialogHeader>
                 <form onSubmit={handleSubmit} className="grid gap-4 py-4">
                     <div className="grid grid-cols-2 gap-4">
                         <div className="grid gap-2">
-                            <Label htmlFor="name">Name</Label>
+                            <Label htmlFor="name">First Name</Label>
                             <Input
                                 id="name"
                                 required
@@ -70,7 +115,7 @@ export function EventRegistrationDialog({ open, onOpenChange, eventTitle }: Even
                             />
                         </div>
                         <div className="grid gap-2">
-                            <Label htmlFor="surname">Surname</Label>
+                            <Label htmlFor="surname">Last Name</Label>
                             <Input
                                 id="surname"
                                 required
