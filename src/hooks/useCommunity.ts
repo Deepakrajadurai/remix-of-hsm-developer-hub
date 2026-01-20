@@ -35,6 +35,9 @@ export interface Channel {
   name: string;
   type: string;
   description: string | null;
+  created_by?: string;
+  is_private?: boolean;
+  is_system?: boolean;
 }
 
 export interface Hashtag {
@@ -401,6 +404,38 @@ export const useCommunity = (activeChannel: string = 'general') => {
     [user, toast]
   );
 
+  // Delete Channel
+  const deleteChannel = useCallback(
+    async (channelId: string) => {
+      if (!user) return;
+      const { error } = await supabase.from('channels').delete().eq('id', channelId);
+      if (error) {
+        toast({ title: 'Error', description: 'Failed to delete channel', variant: 'destructive' });
+      } else {
+        toast({ title: 'Success', description: 'Channel deleted' });
+        // Optimistic update
+        setChannels(prev => prev.filter(c => c.id !== channelId));
+      }
+    },
+    [user, toast]
+  );
+
+  // Update Channel (Rename)
+  const updateChannel = useCallback(
+    async (channelId: string, newName: string) => {
+      if (!user) return;
+      const { error } = await supabase.from('channels').update({ name: newName }).eq('id', channelId);
+      if (error) {
+        toast({ title: 'Error', description: 'Failed to update channel', variant: 'destructive' });
+      } else {
+        toast({ title: 'Success', description: 'Channel updated' });
+        // Optimistic update
+        setChannels(prev => prev.map(c => c.id === channelId ? { ...c, name: newName } : c));
+      }
+    },
+    [user, toast]
+  );
+
   // Filter posts by channel
   const filteredPosts = posts.filter((post) =>
     activeChannel === 'general' ? true : post.channel_id === activeChannel
@@ -418,5 +453,7 @@ export const useCommunity = (activeChannel: string = 'general') => {
     toggleLike,
     sendMessage,
     createChannel,
+    deleteChannel,
+    updateChannel
   };
 };

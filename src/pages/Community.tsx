@@ -4,7 +4,7 @@ import {
   Image as ImageIcon, Send, Plus, Video, Radio, Newspaper,
   Share2, Heart, MessageCircle, MoreHorizontal, Search, RefreshCw, Loader2,
   Bot, User, LayoutList, Copy, Trash2, Flag,
-  Twitter, Facebook, Linkedin, Instagram
+  Twitter, Facebook, Linkedin, Instagram, Lock, MoreVertical, Pencil
 } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import {
@@ -64,6 +64,8 @@ const Community = () => {
     toggleLike,
     sendMessage,
     createChannel,
+    deleteChannel,
+    updateChannel
   } = useCommunity(activeChannel);
 
   // Auto-scroll chat
@@ -131,6 +133,11 @@ const Community = () => {
   // Filter State
   const [activeFilter, setActiveFilter] = useState<'all' | 'news' | 'community' | 'mine'>('all');
 
+  // Edit Channel State
+  const [isEditChannelOpen, setIsEditChannelOpen] = useState(false);
+  const [editChannelId, setEditChannelId] = useState<string | null>(null);
+  const [editChannelName, setEditChannelName] = useState('');
+
   // Report State
   const [reportDialogOpen, setReportDialogOpen] = useState(false);
   const [reportPostId, setReportPostId] = useState<string | null>(null);
@@ -139,6 +146,12 @@ const Community = () => {
   const [shareDialogOpen, setShareDialogOpen] = useState(false);
   const [sharePostId, setSharePostId] = useState<string | null>(null);
   const [shareUrl, setShareUrl] = useState('');
+
+  // Comment State
+  const [activeCommentsPostId, setActiveCommentsPostId] = useState<string | null>(null);
+  const [activeComments, setActiveComments] = useState<any[]>([]);
+  const [commentsLoading, setCommentsLoading] = useState(false);
+  const [commentInput, setCommentInput] = useState('');
 
   // Filter posts based on active filter and selected hashtag
   const displayPosts = posts.filter((post) => {
@@ -253,6 +266,54 @@ const Community = () => {
 
     setReportDialogOpen(false);
     setReportPostId(null);
+  };
+
+  const toggleComments = async (postId: string) => {
+    if (activeCommentsPostId === postId) {
+      setActiveCommentsPostId(null);
+      return;
+    }
+
+    setActiveCommentsPostId(postId);
+    setCommentsLoading(true);
+    setCommentInput('');
+
+    const { data, error } = await supabase
+      .from('comments')
+      .select('*')
+      .eq('post_id', postId)
+      .order('created_at', { ascending: true });
+
+    if (!error && data) {
+      setActiveComments(data);
+    }
+    setCommentsLoading(false);
+  };
+
+  const submitComment = async () => {
+    if (!user || !activeCommentsPostId || !commentInput.trim()) return;
+
+    const newComment = {
+      post_id: activeCommentsPostId,
+      user_id: user.id,
+      user_name: user.user_metadata?.full_name || 'Anonymous',
+      user_avatar: user.user_metadata?.avatar_url,
+      content: commentInput.trim()
+    };
+
+    // Optimistic update
+    const tempId = Math.random().toString();
+    setActiveComments(prev => [...prev, { ...newComment, id: tempId, created_at: new Date().toISOString() }]);
+    setCommentInput('');
+
+    const { data, error } = await supabase.from('comments').insert(newComment).select();
+
+    if (error) {
+      toast({ title: "Error", description: "Failed to post comment", variant: "destructive" });
+    } else if (data) {
+      // Replace temp with real
+      setActiveComments(prev => prev.map(c => c.id === tempId ? data[0] : c));
+    }
   };
 
   // News fetching state
@@ -458,21 +519,81 @@ const Community = () => {
                       </div>
                     </DialogContent>
                   </Dialog>
+
+                  {/* Edit Channel Dialog */}
+                  <Dialog open={isEditChannelOpen} onOpenChange={setIsEditChannelOpen}>
+                    <DialogContent>
+                      <DialogHeader>
+                        <DialogTitle>Edit Channel</DialogTitle>
+                      </DialogHeader>
+                      <div className="py-4">
+                        <Label>Channel Name</Label>
+                        <Input
+                          value={editChannelName}
+                          onChange={(e) => setEditChannelName(e.target.value)}
+                          placeholder="Channel name"
+                          className="mt-2"
+                        />
+                      </div>
+                      <DialogFooter>
+                        <Button variant="destructive" onClick={() => {
+                          if (editChannelId) {
+                            deleteChannel(editChannelId);
+                            setIsEditChannelOpen(false);
+                          }
+                        }}>Delete Channel</Button>
+                        <Button onClick={() => {
+                          if (editChannelId && editChannelName.trim()) {
+                            updateChannel(editChannelId, editChannelName.trim());
+                            setIsEditChannelOpen(false);
+                          }
+                        }}>Save Changes</Button>
+                      </DialogFooter>
+                    </DialogContent>
+                  </Dialog>
                 </div>
               </CardHeader>
               <CardContent className="space-y-1">
                 {channels.map(channel => (
-                  <Button
-                    key={channel.id}
-                    variant={activeChannel === channel.id ? "secondary" : "ghost"}
-                    className="w-full justify-start gap-2"
-                    onClick={() => setActiveChannel(channel.id)}
-                  >
-                    {channel.type === 'news' ? <Newspaper className="h-4 w-4" /> :
-                      channel.type === 'media' ? <ImageIcon className="h-4 w-4" /> :
-                        <Hash className="h-4 w-4" />}
-                    {channel.name}
-                  </Button>
+                  <div key={channel.id} className="group relative flex items-center w-full">
+                    <Button
+                      variant={activeChannel === channel.id ? "secondary" : "ghost"}
+                      className="w-full justify-start gap-2 pr-8"
+                      onClick={() => setActiveChannel(channel.id)}
+                    >
+                      {channel.is_private ? <Lock className="h-4 w-4" /> :
+                        channel.type === 'news' ? <Newspaper className="h-4 w-4" /> :
+                          channel.type === 'media' ? <ImageIcon className="h-4 w-4" /> :
+                            <Hash className="h-4 w-4" />}
+                      <span className="truncate max-w-[120px]">{channel.name}</span>
+                    </Button>
+
+                    {user?.id === channel.created_by && !channel.is_system && (
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" size="icon" className="h-6 w-6 absolute right-1 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-muted">
+                            <MoreVertical className="h-3 w-3" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuItem onClick={(e) => {
+                            e.stopPropagation();
+                            setEditChannelId(channel.id);
+                            setEditChannelName(channel.name);
+                            setIsEditChannelOpen(true);
+                          }}>
+                            <Pencil className="h-3 w-3 mr-2" /> Rename
+                          </DropdownMenuItem>
+                          <DropdownMenuItem className="text-red-500" onClick={(e) => {
+                            e.stopPropagation();
+                            deleteChannel(channel.id);
+                          }}>
+                            <Trash2 className="h-3 w-3 mr-2" /> Delete
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    )}
+                  </div>
                 ))}
               </CardContent>
             </Card>
@@ -719,9 +840,9 @@ const Community = () => {
                         variant="ghost"
                         size="sm"
                         className="gap-2 hover:text-blue-500"
-                        onClick={() => handleComment(post.id)}
+                        onClick={() => toggleComments(post.id)}
                       >
-                        <MessageCircle className="h-4 w-4" /> {post.comments_count}
+                        <MessageSquare className="h-4 w-4" /> {post.comments_count}
                       </Button>
                       <Button
                         variant="ghost"
@@ -733,6 +854,67 @@ const Community = () => {
                       </Button>
                     </div>
                   </CardFooter>
+
+                  {/* Comments Section */}
+                  {activeCommentsPostId === post.id && (
+                    <div className="border-t border-border/50 bg-muted/20 p-4 space-y-4 animate-in slide-in-from-top-2 duration-200">
+                      <div className="space-y-4 max-h-[300px] overflow-y-auto pr-2 custom-scrollbar">
+                        {commentsLoading ? (
+                          <div className="flex justify-center py-4">
+                            <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                          </div>
+                        ) : activeComments.length === 0 ? (
+                          <p className="text-center text-sm text-muted-foreground py-2">No comments yet. Be the first!</p>
+                        ) : (
+                          activeComments.map((comment) => (
+                            <div key={comment.id} className="flex gap-3">
+                              <Avatar className="h-8 w-8 mt-1">
+                                <AvatarImage src={comment.user_avatar} />
+                                <AvatarFallback><User className="h-4 w-4" /></AvatarFallback>
+                              </Avatar>
+                              <div className="flex-1 space-y-1">
+                                <div className="flex items-center gap-2">
+                                  <span className="font-semibold text-sm">{comment.user_name}</span>
+                                  <span className="text-xs text-muted-foreground">{formatDistanceToNow(new Date(comment.created_at), { addSuffix: true })}</span>
+                                </div>
+                                <p className="text-sm text-foreground/90">{comment.content}</p>
+                              </div>
+                            </div>
+                          ))
+                        )}
+                      </div>
+
+                      {user ? (
+                        <div className="flex gap-2 pt-2">
+                          <Avatar className="h-8 w-8">
+                            <AvatarImage src={user.user_metadata?.avatar_url} />
+                            <AvatarFallback><User className="h-4 w-4" /></AvatarFallback>
+                          </Avatar>
+                          <div className="flex-1 flex gap-2">
+                            <Input
+                              placeholder="Write a comment..."
+                              value={commentInput}
+                              onChange={(e) => setCommentInput(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter' && !e.shiftKey) {
+                                  e.preventDefault();
+                                  submitComment();
+                                }
+                              }}
+                              className="h-9 bg-background/50"
+                            />
+                            <Button size="sm" onClick={submitComment} disabled={!commentInput.trim()}>
+                              <Send className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="text-center py-2 bg-muted/30 rounded-md">
+                          <p className="text-sm text-muted-foreground">Please sign in to comment.</p>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </Card>
               ))}
 
@@ -817,10 +999,10 @@ const Community = () => {
 
           </div>
         </div>
-      </main>
+      </main >
 
       <Footer />
-    </div>
+    </div >
   );
 };
 
