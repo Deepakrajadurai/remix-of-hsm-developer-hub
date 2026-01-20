@@ -425,10 +425,10 @@ const Community = () => {
                         </Button>
                         <Button
                           variant="outline"
-                          className="flex flex-col h-auto py-4 gap-2 hover:bg-sky-500/10 hover:text-sky-500 hover:border-sky-500/50"
+                          className="flex flex-col h-auto py-4 gap-2 hover:bg-black/5 hover:text-foreground hover:border-foreground/20 dark:hover:bg-white/10"
                           onClick={() => window.open(`https://twitter.com/intent/tweet?url=${encodeURIComponent(shareUrl)}`, '_blank')}
                         >
-                          <Twitter className="h-6 w-6" /> Twitter
+                          <Twitter className="h-6 w-6" /> X (Twitter)
                         </Button>
                         <Button
                           variant="outline"
