@@ -40,7 +40,7 @@ async function fetchFromReddit(): Promise<NewsArticle[]> {
         for (const subreddit of selectedSubreddits) {
             try {
                 const response = await fetch(
-                    `https://www.reddit.com/r/${subreddit}/hot.json?limit=15`,
+                    `https://corsproxy.io/?` + encodeURIComponent(`https://www.reddit.com/r/${subreddit}/hot.json?limit=30`),
                     { headers: { 'User-Agent': 'Mozilla/5.0' } }
                 );
 
@@ -54,7 +54,7 @@ async function fetchFromReddit(): Promise<NewsArticle[]> {
                         !post.data.over_18 &&
                         post.data.score > 10 // Only popular posts
                     )
-                    .slice(0, 5)
+                    .slice(0, 8)
                     .map((post: any) => ({
                         title: post.data.title,
                         description: post.data.selftext
@@ -90,7 +90,8 @@ async function fetchFromHackerNews(): Promise<NewsArticle[]> {
         const storyIds = await response.json();
 
         // Get first 20 stories
-        const storyPromises = storyIds.slice(0, 20).map(async (id: number) => {
+        // Get first 30 stories
+        const storyPromises = storyIds.slice(0, 30).map(async (id: number) => {
             const res = await fetch(`https://hacker-news.firebaseio.com/v0/item/${id}.json`);
             return res.json();
         });
@@ -108,7 +109,7 @@ async function fetchFromHackerNews(): Promise<NewsArticle[]> {
                 const text = story.title.toLowerCase();
                 return keywords.some(keyword => text.includes(keyword));
             })
-            .slice(0, 8)
+            .slice(0, 30)
             .map((story: any) => ({
                 title: story.title,
                 description: `${story.score} points • ${story.descendants || 0} comments on Hacker News`,
@@ -132,14 +133,14 @@ async function fetchFromDevTo(): Promise<NewsArticle[]> {
         const randomTag = tags[Math.floor(Math.random() * tags.length)];
 
         const response = await fetch(
-            `https://dev.to/api/articles?tag=${randomTag}&top=7&per_page=10`
+            `https://dev.to/api/articles?tag=${randomTag}&top=7&per_page=15`
         );
 
         if (!response.ok) return [];
 
         const articles = await response.json();
 
-        return articles.slice(0, 6).map((article: any) => ({
+        return articles.slice(0, 8).map((article: any) => ({
             title: article.title,
             description: article.description || article.title,
             url: article.url,
@@ -159,13 +160,13 @@ async function fetchFromDevTo(): Promise<NewsArticle[]> {
  */
 async function fetchFromLobsters(): Promise<NewsArticle[]> {
     try {
-        const response = await fetch('https://lobste.rs/hottest.json');
+        const response = await fetch('https://corsproxy.io/?' + encodeURIComponent('https://lobste.rs/hottest.json'));
 
         if (!response.ok) return [];
 
         const stories = await response.json();
 
-        return stories.slice(0, 8).map((story: any) => ({
+        return stories.slice(0, 12).map((story: any) => ({
             title: story.title,
             description: `${story.score} points • ${story.comment_count} comments • ${story.tags?.join(', ') || 'tech'}`,
             url: story.url || story.short_id_url,
@@ -185,7 +186,7 @@ async function fetchFromLobsters(): Promise<NewsArticle[]> {
 async function fetchFromGitHubTrending(): Promise<NewsArticle[]> {
     try {
         // Using GitHub's trending page (parsed from HTML)
-        const response = await fetch('https://api.github.com/search/repositories?q=ai+machine-learning+created:>2026-01-01&sort=stars&order=desc&per_page=10');
+        const response = await fetch('https://api.github.com/search/repositories?q=ai+machine-learning+created:>2026-01-01&sort=stars&order=desc&per_page=15');
 
         if (!response.ok) return [];
 
@@ -323,8 +324,8 @@ export async function fetchAITechNews(): Promise<NewsArticle[]> {
     // Remove duplicates based on title similarity
     const uniqueArticles = removeDuplicates(allArticles);
 
-    // Shuffle for variety and return up to 20 articles
-    const finalArticles = shuffleArray(uniqueArticles).slice(0, 20);
+    // Shuffle for variety and return up to 25 articles
+    const finalArticles = shuffleArray(uniqueArticles).slice(0, 25);
 
     console.log(`✨ Returning ${finalArticles.length} unique articles`);
     return finalArticles;

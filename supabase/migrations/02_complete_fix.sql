@@ -97,6 +97,12 @@ ON hashtags FOR INSERT
 TO authenticated
 WITH CHECK (true);
 
+CREATE POLICY "hashtags_update_policy"
+ON hashtags FOR UPDATE
+TO authenticated
+USING (true)
+WITH CHECK (true);
+
 -- Post hashtags
 DROP POLICY IF EXISTS "Post hashtags are viewable by everyone" ON post_hashtags;
 DROP POLICY IF EXISTS "Authenticated users can create post hashtags" ON post_hashtags;
