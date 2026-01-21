@@ -8,20 +8,39 @@ const passport = require('passport');
 const GoogleStrategy = require('passport-google-oauth20').Strategy;
 const GitHubStrategy = require('passport-github2').Strategy;
 const nodemailer = require('nodemailer');
+const path = require('path');
+// Explicitly load .env from root
+require('dotenv').config({ path: path.resolve(__dirname, '../.env') });
 
 const app = express();
-const PORT = process.env.PORT || 3001;
+const PORT = process.env.PORT || 3001; // Restored fallback for safety during debug
+
+console.log('--- Server Startup Debug ---');
+console.log('Loading .env from:', path.resolve(__dirname, '../.env'));
+console.log('PORT:', process.env.PORT);
+console.log('MYSQL_HOST:', process.env.MYSQL_HOST);
+console.log('SMTP_HOST:', process.env.SMTP_HOST);
+console.log('GOOGLE_CALLBACK_URL:', process.env.GOOGLE_CALLBACK_URL);
+console.log('JWT_SECRET exists:', !!process.env.JWT_SECRET);
+console.log('Start Port:', PORT);
+console.log('----------------------------');
 
 app.use(cors());
 app.use(express.json());
 
+// Request Logger
+app.use((req, res, next) => {
+    console.log(`[REQUEST] ${req.method} ${req.url}`);
+    next();
+});
+
 // Database Connection Pool
 const pool = mysql.createPool({
-    host: process.env.MYSQL_HOST || 'localhost',
-    user: process.env.MYSQL_USER || 'dev-community',
-    password: process.env.MYSQL_PASSWORD || 'hsmdev282930',
-    database: process.env.MYSQL_DB || 'dev_community',
-    port: parseInt(process.env.MYSQL_PORT || '3306'),
+    host: process.env.MYSQL_HOST,
+    user: process.env.MYSQL_USER,
+    password: process.env.MYSQL_PASSWORD,
+    database: process.env.MYSQL_DB,
+    port: parseInt(process.env.MYSQL_PORT),
     waitForConnections: true,
     connectionLimit: 10,
     queueLimit: 0
@@ -29,8 +48,8 @@ const pool = mysql.createPool({
 
 // Helper: Email Transporter
 const transporter = nodemailer.createTransport({
-    host: process.env.SMTP_HOST || 'smtp.gmail.com',
-    port: parseInt(process.env.SMTP_PORT || '587'),
+    host: process.env.SMTP_HOST,
+    port: parseInt(process.env.SMTP_PORT),
     secure: false, // true for 465, false for other ports
     auth: {
         user: process.env.SMTP_USER, // User must set this
@@ -43,7 +62,7 @@ const verifyToken = (req, res, next) => {
     const token = req.headers['authorization']?.split(' ')[1];
     if (!token) return res.status(403).json({ error: 'No token provided' });
 
-    jwt.verify(token, process.env.JWT_SECRET || 'fallback_secret', (err, decoded) => {
+    jwt.verify(token, process.env.JWT_SECRET, (err, decoded) => {
         if (err) return res.status(401).json({ error: 'Unauthorized' });
         req.userId = decoded.id;
         next();
@@ -62,37 +81,45 @@ async function ensureUser(email, passwordHash, fullName, avatarUrl, isVerified =
         let userId;
 
         if (users.length === 0) {
+            console.log(`[ensureUser] Creating new user for ${email}`);
             userId = uuidv4();
             await connection.execute(
                 'INSERT INTO users (id, email, password_hash, is_verified, created_at, updated_at) VALUES (?, ?, ?, ?, NOW(), NOW())',
                 [userId, email, passwordHash, isVerified ? 1 : 0]
             );
         } else {
+            console.log(`[ensureUser] Found existing user for ${email}`);
             userId = users[0].id;
             // If OAuth login, auto-verify email if not verified? Usually yes for Google/GitHub
             if (isVerified && !users[0].is_verified) {
+                console.log(`[ensureUser] Verifying existing user: ${userId}`);
                 await connection.execute('UPDATE users SET is_verified = 1 WHERE id = ?', [userId]);
             }
         }
 
         // 2. Check or Create Profile
+        console.log(`[ensureUser] Checking profile for user: ${userId}`);
         const [profiles] = await connection.execute('SELECT * FROM profiles WHERE user_id = ?', [userId]);
         let finalFullName = fullName;
         let finalAvatarUrl = avatarUrl;
 
         if (profiles.length === 0) {
+            console.log(`[ensureUser] Creating profile for user: ${userId}`);
             await connection.execute(
                 'INSERT INTO profiles (id, user_id, full_name, avatar_url, created_at, updated_at) VALUES (?, ?, ?, ?, NOW(), NOW())',
                 [uuidv4(), userId, fullName || null, avatarUrl || null]
             );
         } else {
+            console.log(`[ensureUser] Using existing profile for user: ${userId}`);
             finalFullName = profiles[0].full_name || fullName;
             finalAvatarUrl = profiles[0].avatar_url || avatarUrl;
         }
 
         // 3. Check or Create User Role
+        console.log(`[ensureUser] Checking roles for user: ${userId}`);
         const [roles] = await connection.execute('SELECT * FROM user_roles WHERE user_id = ?', [userId]);
         if (roles.length === 0) {
+            console.log(`[ensureUser] Assigning default role to user: ${userId}`);
             await connection.execute(
                 'INSERT INTO user_roles (id, user_id, role, created_at) VALUES (?, ?, ?, NOW())',
                 [uuidv4(), userId, 'user']
@@ -121,9 +148,9 @@ async function ensureUser(email, passwordHash, fullName, avatarUrl, isVerified =
 
 // Passport Setup
 passport.use(new GoogleStrategy({
-    clientID: process.env.GOOGLE_CLIENT_ID || "MISSING_ID",
-    clientSecret: process.env.GOOGLE_CLIENT_SECRET || "MISSING_SECRET",
-    callbackURL: "http://localhost:3001/api/auth/google/callback"
+    clientID: process.env.GOOGLE_CLIENT_ID,
+    clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+    callbackURL: process.env.GOOGLE_CALLBACK_URL
 },
     async function (accessToken, refreshToken, profile, cb) {
         try {
@@ -138,9 +165,9 @@ passport.use(new GoogleStrategy({
 ));
 
 passport.use(new GitHubStrategy({
-    clientID: process.env.GITHUB_CLIENT_ID || "MISSING_ID",
-    clientSecret: process.env.GITHUB_CLIENT_SECRET || "MISSING_SECRET",
-    callbackURL: "http://localhost:3001/api/auth/github/callback",
+    clientID: process.env.GITHUB_CLIENT_ID,
+    clientSecret: process.env.GITHUB_CLIENT_SECRET,
+    callbackURL: process.env.GITHUB_CALLBACK_URL,
     scope: ['user:email']
 },
     async function (accessToken, refreshToken, profile, cb) {
@@ -165,8 +192,13 @@ app.get('/api/auth/google', passport.authenticate('google', { scope: ['profile',
 app.get('/api/auth/google/callback',
     passport.authenticate('google', { session: false, failureRedirect: '/auth?error=google_failed' }),
     function (req, res) {
-        const token = jwt.sign({ id: req.user.id, email: req.user.email }, process.env.JWT_SECRET || 'fallback_secret', { expiresIn: '24h' });
-        res.redirect(`http://localhost:8080/auth?token=${token}`);
+        try {
+            const token = jwt.sign({ id: req.user.id, email: req.user.email }, process.env.JWT_SECRET, { expiresIn: '24h' });
+            res.redirect(`${process.env.CLIENT_URL}/auth?token=${token}`);
+        } catch (err) {
+            console.error('Google Callback Error:', err);
+            res.redirect(`${process.env.CLIENT_URL}/auth?error=token_generation_failed`);
+        }
     }
 );
 
@@ -175,8 +207,13 @@ app.get('/api/auth/github', passport.authenticate('github', { scope: ['user:emai
 app.get('/api/auth/github/callback',
     passport.authenticate('github', { session: false, failureRedirect: '/auth?error=github_failed' }),
     function (req, res) {
-        const token = jwt.sign({ id: req.user.id, email: req.user.email }, process.env.JWT_SECRET || 'fallback_secret', { expiresIn: '24h' });
-        res.redirect(`http://localhost:8080/auth?token=${token}`);
+        try {
+            const token = jwt.sign({ id: req.user.id, email: req.user.email }, process.env.JWT_SECRET, { expiresIn: '24h' });
+            res.redirect(`${process.env.CLIENT_URL}/auth?token=${token}`);
+        } catch (err) {
+            console.error('GitHub Callback Error:', err);
+            res.redirect(`${process.env.CLIENT_URL}/auth?error=token_generation_failed`);
+        }
     }
 );
 
@@ -215,7 +252,7 @@ app.post('/api/auth/register', async (req, res) => {
         );
 
         // Send Verification Email
-        const verifyLink = `http://localhost:8080/verify-email?token=${verificationToken}`;
+        const verifyLink = `${process.env.CLIENT_URL}/verify-email?token=${verificationToken}`;
         try {
             await transporter.sendMail({
                 from: process.env.SMTP_USER,
@@ -308,12 +345,20 @@ app.post('/api/auth/login', async (req, res) => {
         const user = rows[0];
 
         if (!user.password_hash) {
-            return res.status(401).json({ error: 'Please sign in with your social account or reset password' });
-        }
-
-        const match = await bcrypt.compare(password, user.password_hash);
-        if (!match) {
-            return res.status(401).json({ error: 'Invalid email or password' });
+            // Check if they are verified (OAuth users are verified by default)
+            if (user.is_verified) {
+                // If verified but no password, we assume it's a social login user trying to sign in with email/empty password?
+                // NO, we can't allow email/password login without a password.
+                // However, the user might be trying to "Sign In" but using the Google button?
+                // The frontend handles Google button separately.
+                // If this is an email/password login attempt:
+                return res.status(401).json({ error: 'Please sign in with your social account or reset password' });
+            }
+        } else {
+            const match = await bcrypt.compare(password, user.password_hash);
+            if (!match) {
+                return res.status(401).json({ error: 'Invalid email or password' });
+            }
         }
 
         // Check Verification
@@ -325,7 +370,7 @@ app.post('/api/auth/login', async (req, res) => {
         const [profiles] = await pool.execute('SELECT * FROM profiles WHERE user_id = ?', [user.id]);
         const profile = profiles[0] || {};
 
-        const token = jwt.sign({ id: user.id, email: user.email }, process.env.JWT_SECRET || 'fallback_secret', { expiresIn: '24h' });
+        const token = jwt.sign({ id: user.id, email: user.email }, process.env.JWT_SECRET, { expiresIn: '24h' });
 
         res.json({
             user: {
@@ -367,5 +412,5 @@ app.get('/api/auth/me', verifyToken, async (req, res) => {
 });
 
 app.listen(PORT, () => {
-    console.log(`Server running on http://localhost:${PORT}`);
+    console.log(`Server running on ${process.env.SERVER_URL || `port ${PORT}`}`);
 });

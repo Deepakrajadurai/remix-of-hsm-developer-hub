@@ -7,7 +7,17 @@ export const authApi = {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ email, password, full_name: fullName }),
         });
-        const data = await res.json();
+
+        const text = await res.text();
+        console.log('Raw Register Response:', text); // Debugging
+
+        let data;
+        try {
+            data = JSON.parse(text);
+        } catch (e) {
+            throw new Error(`Server Error: ${text.slice(0, 100)}...`);
+        }
+
         if (!res.ok) throw new Error(data.error || 'Registration failed');
         return data;
     },

@@ -1,12 +1,13 @@
 const mysql = require('mysql2/promise');
 // require('dotenv').config({ path: '../.env' });
+require('dotenv').config();
 
 const pool = mysql.createPool({
-    host: process.env.MYSQL_HOST || 'localhost',
-    user: process.env.MYSQL_USER || 'dev-community',
-    password: process.env.MYSQL_PASSWORD || 'hsmdev282930',
-    database: process.env.MYSQL_DB || 'dev_community',
-    port: parseInt(process.env.MYSQL_PORT || '3306'),
+    host: process.env.MYSQL_HOST,
+    user: process.env.MYSQL_USER,
+    password: process.env.MYSQL_PASSWORD,
+    database: process.env.MYSQL_DB,
+    port: parseInt(process.env.MYSQL_PORT),
     waitForConnections: true,
     connectionLimit: 10,
     queueLimit: 0
