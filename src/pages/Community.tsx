@@ -41,6 +41,10 @@ const Community = () => {
   const [activeChannel, setActiveChannel] = useState('general');
   const [newPostContent, setNewPostContent] = useState('');
   const [newPostImage, setNewPostImage] = useState('');
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [previewUrl, setPreviewUrl] = useState(''); // Separate preview for blob URLs
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [isUploading, setIsUploading] = useState(false);
   const [chatInput, setChatInput] = useState('');
   const [selectedHashtag, setSelectedHashtag] = useState<string | null>(null);
 
@@ -48,6 +52,7 @@ const Community = () => {
   const [isCreateChannelOpen, setIsCreateChannelOpen] = useState(false);
   const [newChannelName, setNewChannelName] = useState('');
   const [newChannelType, setNewChannelType] = useState('text');
+  const [isMediaDialogOpen, setIsMediaDialogOpen] = useState(false);
 
   const chatScrollRef = useRef<HTMLDivElement>(null);
 
@@ -75,11 +80,107 @@ const Community = () => {
     }
   }, [chatMessages]);
 
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    // Validate file type
+    const validTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'video/mp4', 'video/webm'];
+    if (!validTypes.includes(file.type)) {
+      toast({
+        title: "Invalid File Type",
+        description: "Please upload an image (JPEG, PNG, GIF, WebP) or video (MP4, WebM)",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    // Validate file size (max 10MB)
+    if (file.size > 10 * 1024 * 1024) {
+      toast({
+        title: "File Too Large",
+        description: "Please upload a file smaller than 10MB",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    setSelectedFile(file);
+    // Create preview URL (for display only, not for posting)
+    const blobUrl = URL.createObjectURL(file);
+    setPreviewUrl(blobUrl);
+    setNewPostImage(''); // Clear any URL input
+  };
+
+  const uploadFile = async (file: File): Promise<string | null> => {
+    if (!user) return null;
+
+    try {
+      setIsUploading(true);
+      setUploadProgress(0);
+
+      // Generate unique filename
+      const fileExt = file.name.split('.').pop();
+      const fileName = `${user.id}/${Date.now()}.${fileExt}`;
+
+      // Upload to Supabase Storage
+      const { data, error } = await supabase.storage
+        .from('community-media')
+        .upload(fileName, file, {
+          cacheControl: '3600',
+          upsert: false
+        });
+
+      if (error) throw error;
+
+      // Get public URL
+      const { data: { publicUrl } } = supabase.storage
+        .from('community-media')
+        .getPublicUrl(fileName);
+
+      setUploadProgress(100);
+      return publicUrl;
+    } catch (error: any) {
+      console.error('Upload error:', error);
+      toast({
+        title: "Upload Failed",
+        description: error.message || "Failed to upload file",
+        variant: "destructive"
+      });
+      return null;
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
   const handleCreatePost = async () => {
     if (!newPostContent.trim()) return;
-    await createPost(newPostContent, newPostImage || undefined);
+
+    let mediaUrl = '';
+
+    // Upload file if selected
+    if (selectedFile) {
+      console.log('[Upload] Starting upload for file:', selectedFile.name);
+      const uploadedUrl = await uploadFile(selectedFile);
+      console.log('[Upload] Upload result:', uploadedUrl);
+      if (!uploadedUrl) {
+        console.error('[Upload] Upload failed, aborting post');
+        return; // Upload failed
+      }
+      mediaUrl = uploadedUrl;
+    } else if (newPostImage && !newPostImage.startsWith('blob:')) {
+      // Use URL input only if it's not a blob URL
+      console.log('[Upload] Using URL input:', newPostImage);
+      mediaUrl = newPostImage;
+    }
+
+    console.log('[Post] Creating post with media URL:', mediaUrl);
+    await createPost(newPostContent, mediaUrl || undefined);
     setNewPostContent('');
     setNewPostImage('');
+    setSelectedFile(null);
+    setPreviewUrl('');
+    setUploadProgress(0);
   };
 
   const handleCreateChannel = async () => {
@@ -678,35 +779,83 @@ const Community = () => {
                       value={newPostContent}
                       onChange={(e) => setNewPostContent(e.target.value)}
                     />
-                    {newPostImage && (
+                    {(previewUrl || newPostImage) && (
                       <div className="relative rounded-lg overflow-hidden h-48 bg-muted">
-                        <img src={newPostImage} className="w-full h-full object-cover" />
+                        <img src={previewUrl || newPostImage} className="w-full h-full object-cover" />
                         <Button
                           variant="destructive"
                           size="icon"
                           className="absolute top-2 right-2 h-6 w-6"
-                          onClick={() => setNewPostImage('')}
+                          onClick={() => {
+                            setNewPostImage('');
+                            setSelectedFile(null);
+                            setPreviewUrl('');
+                          }}
                         >
-                          x
+                          ×
                         </Button>
                       </div>
                     )}
                     <Separator />
                     <div className="flex items-center justify-between">
                       <div className="flex gap-2">
-                        <Dialog>
+                        <Dialog open={isMediaDialogOpen} onOpenChange={setIsMediaDialogOpen}>
                           <DialogTrigger asChild>
                             <Button variant="ghost" size="sm" className="text-muted-foreground hover:text-accent gap-2">
                               <ImageIcon className="h-4 w-4" /> Media
                             </Button>
                           </DialogTrigger>
                           <DialogContent>
-                            <DialogHeader><DialogTitle>Add Image URL</DialogTitle></DialogHeader>
-                            <Input
-                              placeholder="https://..."
-                              value={newPostImage}
-                              onChange={(e) => setNewPostImage(e.target.value)}
-                            />
+                            <DialogHeader>
+                              <DialogTitle>Add Media</DialogTitle>
+                              <DialogDescription>
+                                Upload an image, video, or GIF (max 10MB)
+                              </DialogDescription>
+                            </DialogHeader>
+                            <div className="space-y-4">
+                              <div className="flex items-center gap-4">
+                                <Input
+                                  type="file"
+                                  accept="image/*,video/*,.gif"
+                                  onChange={handleFileSelect}
+                                  className="cursor-pointer"
+                                />
+                              </div>
+
+                              {isUploading && (
+                                <div className="space-y-2">
+                                  <div className="flex items-center gap-2">
+                                    <Loader2 className="h-4 w-4 animate-spin" />
+                                    <span className="text-sm">Uploading... {uploadProgress}%</span>
+                                  </div>
+                                  <div className="w-full bg-muted rounded-full h-2">
+                                    <div
+                                      className="bg-primary h-2 rounded-full transition-all"
+                                      style={{ width: `${uploadProgress}%` }}
+                                    />
+                                  </div>
+                                </div>
+                              )}
+
+                              <Separator />
+                              <div>
+                                <Label>Or paste image URL</Label>
+                                <Input
+                                  placeholder="https://..."
+                                  value={newPostImage}
+                                  onChange={(e) => {
+                                    setNewPostImage(e.target.value);
+                                    setSelectedFile(null);
+                                  }}
+                                  className="mt-2"
+                                />
+                              </div>
+                            </div>
+                            <DialogFooter>
+                              <Button onClick={() => setIsMediaDialogOpen(false)}>
+                                Done
+                              </Button>
+                            </DialogFooter>
                           </DialogContent>
                         </Dialog>
 

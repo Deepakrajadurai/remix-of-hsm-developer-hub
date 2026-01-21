@@ -1,0 +1,2 @@
+<!-- This is a placeholder. The actual logo image will be copied manually -->
+<!-- Logo path: public/assets/hsm-logo.png -->

@@ -13,7 +13,7 @@ import {
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { useAuth } from '@/hooks/useAuth';
 import { useTheme } from '@/hooks/useTheme';
-import logo from '@/assets/logo.png';
+import logo from '@/assets/image2vector.svg';
 
 const navLinks = [
   { name: 'Home', path: '/' },
@@ -43,9 +43,13 @@ export const Navbar = () => {
       <div className="container mx-auto px-4">
         <div className="flex items-center justify-between h-16">
           {/* Logo */}
-          <Link to="/" className="flex items-center gap-2">
-            <img src={logo} alt="HSM-Developer Logo" className="h-9 w-9" />
-            <span className="font-semibold text-lg">HSM-Developer</span>
+          <Link to="/" className="flex items-center gap-2 group">
+            <div className="transition-transform group-hover:scale-110">
+              <img src={logo} alt="HSM Community Logo" className="h-12 w-12" />
+            </div>
+            <span className="font-semibold text-lg bg-gradient-to-r from-blue-600 to-cyan-500 bg-clip-text text-transparent">
+              HSM Community
+            </span>
           </Link>
 
           {/* Desktop Navigation */}
