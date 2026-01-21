@@ -7,6 +7,7 @@ const { v4: uuidv4 } = require('uuid');
 const passport = require('passport');
 const GoogleStrategy = require('passport-google-oauth20').Strategy;
 const GitHubStrategy = require('passport-github2').Strategy;
+const nodemailer = require('nodemailer');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -26,6 +27,17 @@ const pool = mysql.createPool({
     queueLimit: 0
 });
 
+// Helper: Email Transporter
+const transporter = nodemailer.createTransport({
+    host: process.env.SMTP_HOST || 'smtp.gmail.com',
+    port: parseInt(process.env.SMTP_PORT || '587'),
+    secure: false, // true for 465, false for other ports
+    auth: {
+        user: process.env.SMTP_USER, // User must set this
+        pass: process.env.SMTP_PASS, // User must set this
+    },
+});
+
 // Middleware to verify JWT
 const verifyToken = (req, res, next) => {
     const token = req.headers['authorization']?.split(' ')[1];
@@ -40,7 +52,7 @@ const verifyToken = (req, res, next) => {
 
 
 // Helper: Ensure User, Profile, and Role exist
-async function ensureUser(email, passwordHash, fullName, avatarUrl) {
+async function ensureUser(email, passwordHash, fullName, avatarUrl, isVerified = false) {
     const connection = await pool.getConnection();
     try {
         await connection.beginTransaction();
@@ -52,11 +64,15 @@ async function ensureUser(email, passwordHash, fullName, avatarUrl) {
         if (users.length === 0) {
             userId = uuidv4();
             await connection.execute(
-                'INSERT INTO users (id, email, password_hash, created_at, updated_at) VALUES (?, ?, ?, NOW(), NOW())',
-                [userId, email, passwordHash] // passwordHash might be null for OAuth
+                'INSERT INTO users (id, email, password_hash, is_verified, created_at, updated_at) VALUES (?, ?, ?, ?, NOW(), NOW())',
+                [userId, email, passwordHash, isVerified ? 1 : 0]
             );
         } else {
-            userId = users[0].id; // Don't overwrite existing user
+            userId = users[0].id;
+            // If OAuth login, auto-verify email if not verified? Usually yes for Google/GitHub
+            if (isVerified && !users[0].is_verified) {
+                await connection.execute('UPDATE users SET is_verified = 1 WHERE id = ?', [userId]);
+            }
         }
 
         // 2. Check or Create Profile
@@ -84,7 +100,16 @@ async function ensureUser(email, passwordHash, fullName, avatarUrl) {
         }
 
         await connection.commit();
-        return { id: userId, email, full_name: finalFullName, avatar_url: finalAvatarUrl };
+        // Re-fetch user to get latest verify status
+        const [freshUsers] = await connection.execute('SELECT * FROM users WHERE id = ?', [userId]);
+
+        return {
+            id: userId,
+            email,
+            full_name: finalFullName,
+            avatar_url: finalAvatarUrl,
+            is_verified: freshUsers[0].is_verified
+        };
 
     } catch (err) {
         await connection.rollback();
@@ -103,7 +128,8 @@ passport.use(new GoogleStrategy({
     async function (accessToken, refreshToken, profile, cb) {
         try {
             const email = profile.emails[0].value;
-            const user = await ensureUser(email, null, profile.displayName, profile.photos?.[0]?.value);
+            // OAuth users are implicitly verified
+            const user = await ensureUser(email, null, profile.displayName, profile.photos?.[0]?.value, true);
             return cb(null, user);
         } catch (err) {
             return cb(err, null);
@@ -120,7 +146,7 @@ passport.use(new GitHubStrategy({
     async function (accessToken, refreshToken, profile, cb) {
         try {
             const email = profile.emails?.[0]?.value || `${profile.username}@github.com`;
-            const user = await ensureUser(email, null, profile.displayName || profile.username, profile.photos?.[0]?.value);
+            const user = await ensureUser(email, null, profile.displayName || profile.username, profile.photos?.[0]?.value, true);
             return cb(null, user);
         } catch (err) {
             return cb(err, null);
@@ -155,7 +181,7 @@ app.get('/api/auth/github/callback',
 );
 
 
-// SIGNUP
+// SIGNUP with EMAIL (Temporary Storage)
 app.post('/api/auth/register', async (req, res) => {
     const { email, password, full_name } = req.body;
 
@@ -163,26 +189,108 @@ app.post('/api/auth/register', async (req, res) => {
         return res.status(400).json({ error: 'Email and password required' });
     }
 
+    // Strict Password Validation
+    const passwordRegex = /^(?=.*[0-9])(?=.*[!@#$%^&*])[a-zA-Z0-9!@#$%^&*]{8,}$/;
+    if (!passwordRegex.test(password)) {
+        return res.status(400).json({ error: 'Password must be at least 8 characters long and include at least one number and one special character.' });
+    }
+
     try {
+        const [existing] = await pool.execute('SELECT id FROM users WHERE email = ?', [email]);
+        if (existing.length > 0) {
+            return res.status(409).json({ error: 'Email already exists' });
+        }
+
         const salt = await bcrypt.genSalt(10);
         const hash = await bcrypt.hash(password, salt);
+        const verificationToken = uuidv4();
+        const pendingId = uuidv4();
 
-        // Use helper to ensure consistency (creates user, profile, AND role)
-        const user = await ensureUser(email, hash, full_name, null);
+        // Save to pending_registrations instead of users
+        await pool.execute(
+            `INSERT INTO pending_registrations (id, email, password_hash, full_name, verification_token, created_at) 
+             VALUES (?, ?, ?, ?, ?, NOW())
+             ON DUPLICATE KEY UPDATE password_hash = VALUES(password_hash), full_name = VALUES(full_name), verification_token = VALUES(verification_token), created_at = NOW()`,
+            [pendingId, email, hash, full_name || null, verificationToken]
+        );
 
-        const token = jwt.sign({ id: user.id, email }, process.env.JWT_SECRET || 'fallback_secret', { expiresIn: '24h' });
+        // Send Verification Email
+        const verifyLink = `http://localhost:8080/verify-email?token=${verificationToken}`;
+        try {
+            await transporter.sendMail({
+                from: process.env.SMTP_USER,
+                to: email,
+                subject: 'Verify your email - Developer Hub',
+                html: `<p>Please click the link below to verify your email:</p><a href="${verifyLink}">${verifyLink}</a>`
+            });
+        } catch (emailErr) {
+            console.error("Email send failed:", emailErr);
+        }
 
         res.json({
-            user,
-            token
+            message: "Registration started. Please check your email to verify your account."
         });
 
     } catch (err) {
         console.error("Signup Error:", err);
-        if (err.code === 'ER_DUP_ENTRY') {
-            return res.status(409).json({ error: 'Email already exists' });
-        }
         res.status(500).json({ error: 'Server error during registration' });
+    }
+});
+
+// VERIFY EMAIL ENDPOINT (Move from Pending to Real)
+app.post('/api/auth/verify', async (req, res) => {
+    const { token } = req.body;
+    if (!token) return res.status(400).json({ error: 'Token required' });
+
+    const connection = await pool.getConnection();
+    try {
+        await connection.beginTransaction();
+
+        // 1. Find in Pending
+        const [pendings] = await connection.execute('SELECT * FROM pending_registrations WHERE verification_token = ?', [token]);
+
+        if (pendings.length === 0) {
+            await connection.rollback();
+            return res.status(400).json({ error: 'Invalid or expired token' });
+        }
+
+        const pendingUser = pendings[0];
+        const userId = uuidv4();
+
+        // 2. Insert into Users
+        await connection.execute(
+            'INSERT INTO users (id, email, password_hash, is_verified, created_at, updated_at) VALUES (?, ?, ?, 1, NOW(), NOW())',
+            [userId, pendingUser.email, pendingUser.password_hash]
+        );
+
+        // 3. Insert into Profiles
+        await connection.execute(
+            'INSERT INTO profiles (id, user_id, full_name, created_at, updated_at) VALUES (?, ?, ?, NOW(), NOW())',
+            [uuidv4(), userId, pendingUser.full_name || null]
+        );
+
+        // 4. Insert into User Roles
+        await connection.execute(
+            'INSERT INTO user_roles (id, user_id, role, created_at) VALUES (?, ?, ?, NOW())',
+            [uuidv4(), userId, 'user']
+        );
+
+        // 5. Delete from Pending
+        await connection.execute('DELETE FROM pending_registrations WHERE email = ?', [pendingUser.email]);
+
+        await connection.commit();
+
+        res.json({ message: 'Email verified successfully. Account created. You can now login.' });
+
+    } catch (err) {
+        await connection.rollback();
+        console.error("Verification Error:", err);
+        if (err.code === 'ER_DUP_ENTRY') {
+            return res.status(409).json({ error: 'Account already verified or email exists.' });
+        }
+        res.status(500).json({ error: 'Server error during verification' });
+    } finally {
+        connection.release();
     }
 });
 
@@ -206,6 +314,11 @@ app.post('/api/auth/login', async (req, res) => {
         const match = await bcrypt.compare(password, user.password_hash);
         if (!match) {
             return res.status(401).json({ error: 'Invalid email or password' });
+        }
+
+        // Check Verification
+        if (user.is_verified === 0) {
+            return res.status(403).json({ error: 'Please verify your email before logging in.' });
         }
 
         // Fetch profile

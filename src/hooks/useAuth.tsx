@@ -58,14 +58,18 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     const signUp = async (email: string, password: string, fullName?: string) => {
         try {
             const data = await authApi.register(email, password, fullName);
-            localStorage.setItem('authToken', data.token);
-            setToken(data.token);
-            setUser({
-                id: data.user.id,
-                email: data.user.email,
-                full_name: data.user.full_name,
-                user_metadata: { full_name: data.user.full_name }
-            });
+            // If the backend returns a token, log them in (legacy behavior or if we turn off verification)
+            if (data.token && data.user) {
+                localStorage.setItem('authToken', data.token);
+                setToken(data.token);
+                setUser({
+                    id: data.user.id,
+                    email: data.user.email,
+                    full_name: data.user.full_name,
+                    user_metadata: { full_name: data.user.full_name }
+                });
+            }
+            // If no token, it means verification is required. Return success but don't set session.
             return { error: null };
         } catch (err: any) {
             return { error: err };

@@ -10,7 +10,10 @@ import { useToast } from '@/hooks/use-toast';
 import { z } from 'zod';
 
 const emailSchema = z.string().email('Please enter a valid email address');
-const passwordSchema = z.string().min(6, 'Password must be at least 6 characters');
+const passwordSchema = z.string()
+  .min(8, 'Password must be at least 8 characters')
+  .regex(/[0-9]/, 'Password must contain at least one number')
+  .regex(/[^a-zA-Z0-9]/, 'Password must contain at least one special character');
 
 const Auth = () => {
   const [searchParams] = useSearchParams();
@@ -75,10 +78,13 @@ const Auth = () => {
           }
         } else {
           toast({
-            title: 'Welcome!',
-            description: 'Your account has been created successfully.',
+            title: 'Registration Successful',
+            description: 'Please check your email to verify your account.',
           });
-          navigate('/');
+          // Stay on auth page or redirect to a specific instruction page? 
+          // Redirecting to home might be confusing if they aren't logged in. 
+          // Let's redirect to login mode to encourage them to sign in after verify.
+          navigate('/auth?mode=login');
         }
       } else {
         const { error } = await signIn(email, password);
