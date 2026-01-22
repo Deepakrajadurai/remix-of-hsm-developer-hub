@@ -9,7 +9,9 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/use-toast';
-import { supabase } from '@/integrations/supabase/client';
+// Supabase removed
+
+const API_URL = import.meta.env.VITE_SERVER_URL || 'http://localhost:3001';
 
 const BlogNew = () => {
   const [title, setTitle] = useState('');
@@ -17,7 +19,7 @@ const BlogNew = () => {
   const [excerpt, setExcerpt] = useState('');
   const [published, setPublished] = useState(true);
   const [saving, setSaving] = useState(false);
-  
+
   const { user, loading } = useAuth();
   const navigate = useNavigate();
   const { toast } = useToast();
@@ -34,7 +36,7 @@ const BlogNew = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     if (!title.trim() || !content.trim()) {
       toast({
         title: 'Missing fields',
@@ -72,28 +74,38 @@ const BlogNew = () => {
     }
 
     setSaving(true);
+    const token = localStorage.getItem('authToken');
 
     try {
-      const { error } = await supabase.from('posts').insert({
-        title: title.trim(),
-        content: content.trim(),
-        excerpt: excerpt.trim() || null,
-        published,
-        user_id: user!.id,
+      const res = await fetch(`${API_URL}/api/blog`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          title: title.trim(),
+          content: content.trim(),
+          excerpt: excerpt.trim(),
+          published
+        })
       });
 
-      if (error) throw error;
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || 'Failed to create post');
+      }
 
       toast({
         title: 'Article published!',
         description: 'Your article has been successfully published.',
       });
       navigate('/blog');
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error saving post:', err);
       toast({
         title: 'Error',
-        description: 'Failed to save article. Please try again.',
+        description: err.message || 'Failed to save article. Please try again.',
         variant: 'destructive',
       });
     } finally {
@@ -112,7 +124,7 @@ const BlogNew = () => {
   return (
     <div className="min-h-screen bg-background">
       <Navbar />
-      
+
       <main className="pt-24 pb-20">
         <div className="container mx-auto px-4 max-w-3xl">
           <Link to="/blog" className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground mb-8">

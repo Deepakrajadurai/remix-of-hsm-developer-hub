@@ -9,6 +9,10 @@ const GoogleStrategy = require('passport-google-oauth20').Strategy;
 const GitHubStrategy = require('passport-github2').Strategy;
 const nodemailer = require('nodemailer');
 const path = require('path');
+const multer = require('multer');
+const fs = require('fs');
+const sharp = require('sharp');
+
 // Explicitly load .env from root
 require('dotenv').config({ path: path.resolve(__dirname, '../.env') });
 
@@ -26,7 +30,25 @@ console.log('Start Port:', PORT);
 console.log('----------------------------');
 
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ limit: '50mb', extended: true }));
+
+// Serve Uploads - REMOVED for Base64
+
+// Multer Storage Setup (Memory for Base64)
+const storage = multer.memoryStorage();
+
+const upload = multer({
+    storage: storage,
+    limits: { fileSize: 5 * 1024 * 1024 }, // 5MB limit
+    fileFilter: (req, file, cb) => {
+        if (file.mimetype.startsWith('image/')) {
+            cb(null, true);
+        } else {
+            cb(new Error('Only images are allowed'));
+        }
+    }
+});
 
 // Request Logger
 app.use((req, res, next) => {
@@ -411,6 +433,583 @@ app.get('/api/auth/me', verifyToken, async (req, res) => {
     }
 });
 
-app.listen(PORT, () => {
+// --- COMMUNITY ROUTES ---
+
+// 1. GET CHANNELS
+app.get('/api/community/channels', async (req, res) => {
+    try {
+        const [channels] = await pool.execute('SELECT * FROM channels ORDER BY created_at ASC');
+        res.json(channels);
+    } catch (err) {
+        console.error("Get Channels Error:", err);
+        res.status(500).json({ error: 'Server error fetching channels' });
+    }
+});
+
+// 2. CREATE CHANNEL (Protected)
+app.post('/api/community/channels', verifyToken, async (req, res) => {
+    const { slug, name, description } = req.body;
+    if (!slug || !name) return res.status(400).json({ error: 'Slug and Name are required' });
+
+    try {
+        const id = uuidv4();
+        await pool.execute(
+            'INSERT INTO channels (id, slug, name, description, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, NOW(), NOW())',
+            [id, slug, name, description || null, req.userId]
+        );
+        const [newChannel] = await pool.execute('SELECT * FROM channels WHERE id = ?', [id]);
+        res.json(newChannel[0]);
+    } catch (err) {
+        console.error("Create Channel Error:", err);
+        if (err.code === 'ER_DUP_ENTRY') {
+            return res.status(409).json({ error: 'Channel slug already exists' });
+        }
+        res.status(500).json({ error: 'Server error creating channel' });
+    }
+});
+
+// 3. GET POSTS (with filters)
+// 3. GET POSTS (with filters)
+app.get('/api/community/posts', async (req, res) => {
+    const { channel_id, search, limit = 50 } = req.query;
+
+    // Check for optional auth token to get 'liked' status
+    let userId = null;
+    const authHeader = req.headers['authorization'];
+    if (authHeader) {
+        const token = authHeader.split(' ')[1];
+        if (token) {
+            try {
+                const decoded = jwt.verify(token, process.env.JWT_SECRET);
+                userId = decoded.id;
+            } catch (ignore) { }
+        }
+    }
+
+    let query = `
+        SELECT p.*, 
+               u.email as author_email, 
+               COALESCE(p.author_name, pr.full_name, 'Anonymous') as author_name, 
+               COALESCE(p.author_avatar, pr.avatar_url) as author_avatar,
+               c.name as channel_name,
+               c.slug as channel_slug,
+               (SELECT COUNT(*) FROM post_likes WHERE post_id = p.id) as likes_count,
+               (SELECT COUNT(*) FROM chat_messages WHERE reply_to_post_id = p.id) as replies_count
+    `;
+
+    if (userId) {
+        query += `, (SELECT COUNT(*) FROM post_likes WHERE post_id = p.id AND user_id = ?) > 0 as liked`;
+    } else {
+        query += `, 0 as liked`;
+    }
+
+    query += `
+        FROM posts p
+        LEFT JOIN users u ON p.author_id = u.id
+        LEFT JOIN profiles pr ON u.id = pr.user_id
+        LEFT JOIN channels c ON p.channel_id = c.id
+        WHERE 1=1
+    `;
+
+    try {
+        let targetChannelId = channel_id;
+
+        // Resolve slug to ID if necessary
+        if (channel_id) {
+            const [channels] = await pool.execute('SELECT id FROM channels WHERE slug = ? OR id = ?', [channel_id, channel_id]);
+            if (channels.length > 0) {
+                targetChannelId = channels[0].id;
+            } else {
+                return res.json([]); // Chanel not found, return empty
+            }
+        }
+
+        const params = [];
+        if (userId) {
+            params.push(userId);
+        }
+
+        if (targetChannelId) {
+            query += ' AND p.channel_id = ?';
+            params.push(targetChannelId);
+        }
+
+        if (search) {
+            query += ' AND (p.content LIKE ?)';
+            params.push(`%${search}%`);
+        }
+
+        query += ' ORDER BY p.created_at DESC LIMIT ?';
+        params.push(parseInt(limit));
+
+        const [posts] = await pool.query(query, params);
+
+        // Fetch hashtags for these posts
+        if (posts.length > 0) {
+            const postIds = posts.map(p => p.id);
+            const placeholders = postIds.map(() => '?').join(',');
+            const [tags] = await pool.query(`
+                SELECT ph.post_id, h.name 
+                FROM post_hashtags ph 
+                JOIN hashtags h ON ph.hashtag_id = h.id 
+                WHERE ph.post_id IN (${placeholders})
+            `, postIds);
+
+            // Group tags by post_id
+            const tagsByPost = {};
+            tags.forEach(t => {
+                if (!tagsByPost[t.post_id]) tagsByPost[t.post_id] = [];
+                tagsByPost[t.post_id].push(t.name);
+            });
+
+            // Attach to posts
+            const mappedPosts = posts.map(post => ({
+                ...post,
+                liked: !!post.liked,
+                hashtags: tagsByPost[post.id] || [] // Array of strings
+            }));
+            res.json(mappedPosts);
+        } else {
+            res.json([]);
+        }
+    } catch (err) {
+        console.error("Get Posts Error:", err);
+        res.status(500).json({ error: 'Server error fetching posts' });
+    }
+});
+
+// 4. CREATE POST (Protected)
+app.post('/api/community/posts', verifyToken, async (req, res) => {
+    const { title, content, channel_id, image_url, is_system_post, author_name, author_avatar } = req.body;
+    if (!content || !channel_id) return res.status(400).json({ error: 'Content and channel are required' });
+
+    try {
+        const id = uuidv4();
+
+        let finalContent = content;
+        if (title && !content.startsWith(title)) {
+            finalContent = `**${title}**\n\n${content}`;
+        }
+
+        // Fetch author details if not provided (for denormalization)
+        let finalAuthorName = author_name;
+        let finalAuthorAvatar = author_avatar;
+
+        if (!finalAuthorName) {
+            const [profiles] = await pool.execute('SELECT full_name, avatar_url FROM profiles WHERE user_id = ?', [req.userId]);
+            if (profiles.length > 0) {
+                finalAuthorName = profiles[0].full_name;
+                finalAuthorAvatar = profiles[0].avatar_url || finalAuthorAvatar;
+            }
+        }
+
+        await pool.execute(
+            'INSERT INTO posts (id, author_id, channel_id, content, image_url, created_at, updated_at, is_system_post, author_name, author_avatar) VALUES (?, ?, ?, ?, ?, NOW(), NOW(), ?, ?, ?)',
+            [id, req.userId, channel_id, finalContent, image_url || null, is_system_post ? 1 : 0, finalAuthorName || null, finalAuthorAvatar || null]
+        );
+
+        // Fetch full post to return
+        const [newPost] = await pool.execute(`
+            SELECT p.*, 
+                   u.email as author_email, 
+                   COALESCE(p.author_name, pr.full_name, 'Anonymous') as author_name, 
+                   COALESCE(p.author_avatar, pr.avatar_url) as author_avatar,
+                   c.name as channel_name,
+                   c.slug as channel_slug,
+                   0 as likes_count,
+                   0 as replies_count
+            FROM posts p
+            LEFT JOIN users u ON p.author_id = u.id
+            LEFT JOIN profiles pr ON u.id = pr.user_id
+            LEFT JOIN channels c ON p.channel_id = c.id
+            WHERE p.id = ?
+        `, [id]);
+
+        // --- HASHTAG PROCESSING ---
+        try {
+            const tags = (finalContent.match(/#[\w-]+/g) || []).map(t => t.slice(1).toLowerCase());
+            const uniqueTags = [...new Set(tags)];
+
+            for (const tag of uniqueTags) {
+                // 1. Ensure Tag Exists (Case Insensitive Check)
+                const [existingTag] = await pool.execute('SELECT id FROM hashtags WHERE LOWER(name) = ?', [tag.toLowerCase()]);
+                let tagId;
+
+                if (existingTag.length === 0) {
+                    tagId = uuidv4();
+                    // Store strict casing or lower? Usually store display casing (first time) or lower.
+                    // Let's store as provided (first user sets casing).
+                    console.log("Creating new hashtag:", tag, "using last_used_at");
+                    await pool.execute('INSERT INTO hashtags (id, name, last_used_at) VALUES (?, ?, NOW())', [tagId, tag]);
+                } else {
+                    tagId = existingTag[0].id;
+                }
+
+                // 2. Link to Post (Check for duplicate link just in case, though Set handles it for single post)
+                // IGNORE to prevent crashing if re-running or some edge case
+                await pool.execute('INSERT IGNORE INTO post_hashtags (post_id, hashtag_id) VALUES (?, ?)', [id, tagId]);
+            }
+        } catch (tagErr) {
+            console.error("Error processing hashtags:", tagErr);
+            // Don't fail the request, just log it
+        }
+
+        res.json(newPost[0]);
+    } catch (err) {
+        console.error("Create Post Error:", err);
+        res.status(500).json({ error: 'Server error creating post' });
+    }
+});
+
+// 5. TOGGLE LIKE (Protected)
+app.post('/api/community/posts/:id/like', verifyToken, async (req, res) => {
+    const postId = req.params.id;
+    try {
+        // Check if already liked
+        const [existing] = await pool.execute('SELECT * FROM post_likes WHERE post_id = ? AND user_id = ?', [postId, req.userId]);
+
+        let liked = false;
+        if (existing.length > 0) {
+            // Unlike
+            await pool.execute('DELETE FROM post_likes WHERE post_id = ? AND user_id = ?', [postId, req.userId]);
+            liked = false;
+        } else {
+            // Like
+            await pool.execute('INSERT INTO post_likes (post_id, user_id, created_at) VALUES (?, ?, NOW())', [postId, req.userId]);
+            liked = true;
+        }
+
+        // Return updated distinct count
+        // Actually, returning just the boolean is fine, frontend can increment/decrement.
+        res.json({ liked });
+    } catch (err) {
+        console.error("Toggle Like Error:", err);
+        res.status(500).json({ error: 'Server error toggling like' });
+    }
+});
+
+// 5b. DELETE POST (Protected)
+app.delete('/api/community/posts/:id', verifyToken, async (req, res) => {
+    const postId = req.params.id;
+    try {
+        // Ensure author matches
+        const [posts] = await pool.execute('SELECT author_id FROM posts WHERE id = ?', [postId]);
+        if (posts.length === 0) return res.status(404).json({ error: 'Post not found' });
+
+        if (posts[0].author_id !== req.userId) {
+            return res.status(403).json({ error: 'Unauthorized to delete this post' });
+        }
+
+        await pool.execute('DELETE FROM posts WHERE id = ?', [postId]);
+        res.json({ message: 'Post deleted' });
+    } catch (err) {
+        console.error("Delete Post Error:", err);
+        res.status(500).json({ error: 'Server error deleting post' });
+    }
+});
+
+// 5c. EDIT POST (Protected)
+app.put('/api/community/posts/:id', verifyToken, async (req, res) => {
+    const postId = req.params.id;
+    const { content } = req.body;
+
+    if (!content) return res.status(400).json({ error: 'Content required' });
+
+    try {
+        // Ensure author matches
+        const [posts] = await pool.execute('SELECT author_id FROM posts WHERE id = ?', [postId]);
+        if (posts.length === 0) return res.status(404).json({ error: 'Post not found' });
+
+        if (posts[0].author_id !== req.userId) {
+            return res.status(403).json({ error: 'Unauthorized to edit this post' });
+        }
+
+        await pool.execute('UPDATE posts SET content = ?, updated_at = NOW() WHERE id = ?', [content, postId]);
+
+        // --- RE-PROCESS HASHTAGS ---
+        try {
+            // 1. Clear existing links
+            await pool.execute('DELETE FROM post_hashtags WHERE post_id = ?', [postId]);
+
+            // 2. Parse new tags
+            const tags = (content.match(/#[\w-]+/g) || []).map(t => t.slice(1).toLowerCase());
+            const uniqueTags = [...new Set(tags)];
+
+            for (const tag of uniqueTags) {
+                // Ensure Tag Exists
+                const [existingTag] = await pool.execute('SELECT id FROM hashtags WHERE LOWER(name) = ?', [tag.toLowerCase()]);
+                let tagId;
+
+                if (existingTag.length === 0) {
+                    tagId = uuidv4();
+                    console.log("Creating new hashtag (Edit):", tag);
+                    await pool.execute('INSERT INTO hashtags (id, name, last_used_at) VALUES (?, ?, NOW())', [tagId, tag]);
+                } else {
+                    tagId = existingTag[0].id;
+                    // Optional: Update last_used_at?
+                    await pool.execute('UPDATE hashtags SET last_used_at = NOW() WHERE id = ?', [tagId]);
+                }
+
+                // Link to Post
+                await pool.execute('INSERT IGNORE INTO post_hashtags (post_id, hashtag_id) VALUES (?, ?)', [postId, tagId]);
+            }
+        } catch (tagErr) {
+            console.error("Error re-processing hashtags:", tagErr);
+        }
+
+        // Return updated post
+        const [updatedPost] = await pool.execute('SELECT * FROM posts WHERE id = ?', [postId]);
+        res.json(updatedPost[0]);
+    } catch (err) {
+        console.error("Edit Post Error:", err);
+        res.status(500).json({ error: 'Server error editing post' });
+    }
+});
+
+// 6. GET CHAT MESSAGES
+app.get('/api/community/chat', async (req, res) => {
+    const { channel_id, reply_to_post_id, limit = 100 } = req.query;
+
+    // Base query
+    let query = `
+        SELECT m.*, 
+               u.email as author_email, 
+               pr.full_name as author_name, 
+               pr.avatar_url as author_avatar 
+        FROM chat_messages m
+        JOIN users u ON m.user_id = u.id
+        LEFT JOIN profiles pr ON u.id = pr.user_id
+        WHERE 1=1
+    `;
+    try {
+        let targetChannelId = channel_id;
+
+        // Resolve slug to ID if necessary
+        if (channel_id && !reply_to_post_id) {
+            const [channels] = await pool.execute('SELECT id FROM channels WHERE slug = ? OR id = ?', [channel_id, channel_id]);
+            if (channels.length > 0) {
+                targetChannelId = channels[0].id;
+            } else {
+                return res.json([]); // Channel not found, return empty messages
+            }
+        }
+
+        const params = [];
+        if (reply_to_post_id) {
+            query += ' AND m.reply_to_post_id = ?';
+            params.push(reply_to_post_id);
+        } else if (targetChannelId) {
+            query += ' AND m.channel_id = ? AND m.reply_to_post_id IS NULL';
+            params.push(targetChannelId);
+        }
+
+        query += ' ORDER BY m.created_at ASC LIMIT ?';
+        params.push(parseInt(limit));
+
+        const [messages] = await pool.query(query, params);
+        res.json(messages);
+    } catch (err) {
+        console.error("Get Chat Error:", err);
+        res.status(500).json({ error: 'Server error fetching messages' });
+    }
+});
+
+// 7. SEND CHAT MESSAGE (Protected)
+app.post('/api/community/chat', verifyToken, async (req, res) => {
+    const { content, channel_id, reply_to_post_id } = req.body;
+    if (!content) return res.status(400).json({ error: 'Message content is required' });
+
+    try {
+        const id = uuidv4();
+        await pool.execute(
+            'INSERT INTO chat_messages (id, user_id, channel_id, reply_to_post_id, message, created_at) VALUES (?, ?, ?, ?, ?, NOW())',
+            [id, req.userId, channel_id || null, reply_to_post_id || null, content]
+        );
+
+        // Return full message
+        const [newMessage] = await pool.execute(`
+             SELECT m.*, 
+               u.email as author_email, 
+               pr.full_name as author_name, 
+               pr.avatar_url as author_avatar 
+        FROM chat_messages m
+        JOIN users u ON m.user_id = u.id
+        LEFT JOIN profiles pr ON u.id = pr.user_id
+        WHERE m.id = ?
+        `, [id]);
+
+        res.json(newMessage[0]);
+    } catch (err) {
+        console.error("Send Chat Error:", err);
+        res.status(500).json({ error: 'Server error sending message' });
+    }
+});
+
+// --- PROFILE ROUTES ---
+
+// 9. UPLOAD IMAGE (Protected)
+// 9. UPLOAD IMAGE (Protected) - Base64 Version with Compression
+app.post('/api/upload', verifyToken, upload.single('file'), async (req, res) => {
+    if (!req.file) {
+        return res.status(400).json({ error: 'No file uploaded' });
+    }
+
+    try {
+        // Compress and resize image
+        const compressedBuffer = await sharp(req.file.buffer)
+            .resize({ width: 800, withoutEnlargement: true }) // reasonable max width for feed
+            .jpeg({ quality: 80 }) // 80% quality JPEG
+            .toBuffer();
+
+        // Convert buffer to Base64 Data URI
+        const b64 = compressedBuffer.toString('base64');
+        const dataURI = `data:image/jpeg;base64,${b64}`;
+
+        // Return the Data URI as the 'url'
+        res.json({ url: dataURI });
+    } catch (err) {
+        console.error("Image Processing Error:", err);
+        return res.status(500).json({ error: 'Error processing image' });
+    }
+});
+
+// 10. UPDATE PROFILE (Protected)
+app.put('/api/profile', verifyToken, async (req, res) => {
+    const { full_name, github_link, linkedin_link, avatar_url, cover_url } = req.body;
+
+    try {
+        await pool.execute(
+            'UPDATE profiles SET full_name = ?, github_link = ?, linkedin_link = ?, avatar_url = ?, cover_url = ?, updated_at = NOW() WHERE user_id = ?',
+            [full_name, github_link, linkedin_link, avatar_url, cover_url, req.userId]
+        );
+
+        // Return updated user data (similar to /me)
+        const [rows] = await pool.execute('SELECT id, email FROM users WHERE id = ?', [req.userId]);
+        const user = rows[0];
+        const [profiles] = await pool.execute('SELECT * FROM profiles WHERE user_id = ?', [req.userId]);
+        const profile = profiles[0] || {};
+
+        res.json({
+            user: {
+                id: user.id,
+                email: user.email,
+                full_name: profile.full_name,
+                avatar_url: profile.avatar_url,
+                cover_url: profile.cover_url,
+                github_link: profile.github_link,
+                linkedin_link: profile.linkedin_link
+            }
+        });
+    } catch (err) {
+        console.error("Update Profile Error:", err);
+        res.status(500).json({ error: 'Server error updating profile' });
+    }
+});
+
+
+// 8. GET TRENDING HASHTAGS
+app.get('/api/community/trending', async (req, res) => {
+    const FALLBACK_TAGS = [
+        'JavaScript', 'TypeScript', 'React', 'NodeJS', 'Python',
+        'AI', 'MachineLearning', 'WebDev', 'DevOps', 'Docker',
+        'Kubernetes', 'Rust', 'Go', 'Database', 'SQL',
+        'NoSQL', 'Frontend', 'Backend', 'FullStack', 'Mobile',
+        'iOS', 'Android', 'Cloud', 'AWS', 'Azure'
+    ];
+
+    try {
+        // Simple count of usage in post_hashtags
+        const query = `
+            SELECT h.name, COUNT(ph.post_id) as count
+            FROM hashtags h
+            JOIN post_hashtags ph ON h.id = ph.hashtag_id
+            GROUP BY h.id, h.name
+            ORDER BY count DESC
+            LIMIT 10
+        `;
+        const [trending] = await pool.query(query);
+
+        // Fill with fallback if less than 10
+        if (trending.length < 10) {
+            const existingNames = new Set(trending.map(t => t.name.toLowerCase()));
+            for (const tag of FALLBACK_TAGS) {
+                if (trending.length >= 10) break;
+                if (!existingNames.has(tag.toLowerCase())) {
+                    trending.push({ name: tag, count: 0, id: 'fallback-' + tag });
+                    existingNames.add(tag.toLowerCase());
+                }
+            }
+        }
+
+        res.json(trending);
+    } catch (err) {
+        console.error("Get Trending Error:", err);
+        res.status(500).json({ error: 'Server error fetching trending tags' });
+    }
+});
+
+// 9. SEARCH HASHTAGS (Autocomplete with Fallback)
+app.get('/api/community/hashtags', async (req, res) => {
+    const { search } = req.query;
+    const FALLBACK_TAGS = [
+        'JavaScript', 'TypeScript', 'React', 'NodeJS', 'Python',
+        'AI', 'MachineLearning', 'WebDev', 'DevOps', 'Docker',
+        'Kubernetes', 'Rust', 'Go', 'Database', 'SQL',
+        'NoSQL', 'Frontend', 'Backend', 'FullStack', 'Mobile',
+        'iOS', 'Android', 'Cloud', 'AWS', 'Azure'
+    ];
+
+    try {
+        let query = `
+            SELECT h.name, COUNT(ph.post_id) as count
+            FROM hashtags h
+            LEFT JOIN post_hashtags ph ON h.id = ph.hashtag_id
+            WHERE 1=1
+        `;
+        const params = [];
+
+        if (search) {
+            query += ' AND h.name LIKE ?';
+            params.push(`${search}%`); // Starts with
+        }
+
+        query += `
+            GROUP BY h.id, h.name
+            ORDER BY count DESC
+            LIMIT 5
+        `;
+
+        const [dbResults] = await pool.query(query, params);
+
+        // Combine with Fallback
+        const searchLower = search ? search.toLowerCase() : '';
+        const fallbackMatches = FALLBACK_TAGS
+            .filter(tag => tag.toLowerCase().startsWith(searchLower))
+            .filter(tag => !dbResults.find(r => r.name.toLowerCase() === tag.toLowerCase()))
+            .map(tag => ({ name: tag, count: 0 })); // Count 0 for fallback
+
+        // Merge: DB results first, then fallback, limit to 10
+        const combined = [...dbResults, ...fallbackMatches].slice(0, 10);
+
+        res.json(combined);
+    } catch (err) {
+        console.error("Search Hashtags Error:", err);
+        res.status(500).json({ error: 'Server error searching hashtags' });
+    }
+});
+
+app.listen(PORT, async () => {
     console.log(`Server running on ${process.env.SERVER_URL || `port ${PORT}`}`);
+
+    // Schema Migration for Base64 Support
+    try {
+        console.log('--- Checking Database Schema ---');
+        // Ensure image_url columns are large enough for Base64 (MEDIUMTEXT ~16MB)
+        await pool.query("ALTER TABLE posts MODIFY image_url LONGTEXT");
+        await pool.query("ALTER TABLE profiles MODIFY avatar_url LONGTEXT");
+        console.log('Database schema updated for large image storage.');
+    } catch (e) {
+        // Ignore if headers already sent or other non-critical start errors, but log it
+        console.log('Schema update note (safe to ignore if columns exist):', e.message);
+    }
 });

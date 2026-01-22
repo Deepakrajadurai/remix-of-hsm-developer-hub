@@ -6,7 +6,9 @@ import { Footer } from '@/components/Footer';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { useAuth } from '@/hooks/useAuth';
-import { supabase } from '@/integrations/supabase/client';
+// Supabase removed
+
+const API_URL = import.meta.env.VITE_SERVER_URL || 'http://localhost:3001';
 
 interface Post {
   id: string;
@@ -14,7 +16,9 @@ interface Post {
   excerpt: string | null;
   content: string;
   created_at: string;
-  user_id: string;
+  author_id: string;
+  author_name?: string;
+  author_avatar?: string;
 }
 
 // Sample posts for when DB is empty
@@ -25,7 +29,8 @@ const samplePosts: Post[] = [
     excerpt: 'Explore the new features and improvements in React 19, including the new use hook and server components.',
     content: '',
     created_at: '2024-01-15T10:00:00Z',
-    user_id: 'sample',
+    author_id: 'sample',
+    author_name: 'Community Author'
   },
   {
     id: 'sample-2',
@@ -33,7 +38,8 @@ const samplePosts: Post[] = [
     excerpt: 'Learn best practices for structuring large TypeScript projects with proper typing and architecture patterns.',
     content: '',
     created_at: '2024-01-10T14:30:00Z',
-    user_id: 'sample',
+    author_id: 'sample',
+    author_name: 'Community Author'
   },
   {
     id: 'sample-3',
@@ -41,7 +47,8 @@ const samplePosts: Post[] = [
     excerpt: 'Understanding edge computing and how it can improve performance for your web applications.',
     content: '',
     created_at: '2024-01-05T09:00:00Z',
-    user_id: 'sample',
+    author_id: 'sample',
+    author_name: 'Community Author'
   },
 ];
 
@@ -58,17 +65,13 @@ const Blog = () => {
   useEffect(() => {
     const fetchPosts = async () => {
       try {
-        const { data, error } = await supabase
-          .from('posts')
-          .select('*')
-          .eq('published', true)
-          .order('created_at', { ascending: false });
-
-        if (error) throw error;
+        const res = await fetch(`${API_URL}/api/blog`);
+        if (!res.ok) throw new Error('Failed to fetch posts');
+        const data = await res.json();
         setPosts(data && data.length > 0 ? data : samplePosts);
       } catch (err) {
         console.error('Error fetching posts:', err);
-        setPosts(samplePosts);
+        setPosts(samplePosts); // Fallback to samples if error/empty
       } finally {
         setLoading(false);
       }
@@ -80,7 +83,7 @@ const Blog = () => {
   return (
     <div className="min-h-screen bg-background">
       <Navbar />
-      
+
       <main className="pt-24 pb-20">
         <div className="container mx-auto px-4">
           {/* Header */}
@@ -93,7 +96,7 @@ const Blog = () => {
                 Insights, tutorials, and stories from the HSM-Developer community.
               </p>
             </div>
-            
+
             {user && (
               <Link to="/blog/new">
                 <Button variant="gradient" className="gap-2 hidden md:flex">
@@ -139,21 +142,21 @@ const Blog = () => {
                       </div>
                       <div className="flex items-center gap-1.5">
                         <User className="h-4 w-4" />
-                        Community Author
+                        {post.author_name || 'Community Member'}
                       </div>
                     </div>
-                    
+
                     <h2 className="text-2xl font-bold mb-3 group-hover:text-accent transition-colors">
                       {post.title}
                     </h2>
-                    
+
                     {post.excerpt && (
                       <p className="text-muted-foreground mb-4 line-clamp-2">
                         {post.excerpt}
                       </p>
                     )}
-                    
-                    <Link 
+
+                    <Link
                       to={`/blog/${post.id}`}
                       className="inline-flex items-center gap-1 text-sm font-medium text-accent hover:underline"
                     >

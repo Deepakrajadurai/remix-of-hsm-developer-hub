@@ -19,10 +19,12 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useState, useCallback, useRef } from "react";
-import { supabase } from "@/integrations/supabase/client";
+// Supabase removed
 import { useToast } from "@/hooks/use-toast";
 import Cropper from 'react-easy-crop';
 import getCroppedImg from '@/lib/cropImage';
+
+const API_URL = import.meta.env.VITE_SERVER_URL || 'http://localhost:3001';
 
 const Profile = () => {
     const { user } = useAuth();
@@ -31,13 +33,13 @@ const Profile = () => {
     const [loading, setLoading] = useState(false);
 
     // Form State
-    const [fullName, setFullName] = useState(user?.user_metadata?.full_name || '');
-    const [githubUrl, setGithubUrl] = useState(user?.user_metadata?.github_link || '');
-    const [linkedinUrl, setLinkedinUrl] = useState(user?.user_metadata?.linkedin_link || '');
+    const [fullName, setFullName] = useState(user?.full_name || user?.user_metadata?.full_name || '');
+    const [githubUrl, setGithubUrl] = useState(user?.github_link || user?.user_metadata?.github_link || '');
+    const [linkedinUrl, setLinkedinUrl] = useState(user?.linkedin_link || user?.user_metadata?.linkedin_link || '');
 
     // Image Upload State
-    const [tempAvatarUrl, setTempAvatarUrl] = useState(user?.user_metadata?.avatar_url || '');
-    const [tempCoverUrl, setTempCoverUrl] = useState(user?.user_metadata?.cover_url || '');
+    const [tempAvatarUrl, setTempAvatarUrl] = useState(user?.avatar_url || user?.user_metadata?.avatar_url || '');
+    const [tempCoverUrl, setTempCoverUrl] = useState(user?.cover_url || user?.user_metadata?.cover_url || '');
 
     // Cropper State
     const [cropImageSrc, setCropImageSrc] = useState<string | null>(null);
@@ -46,6 +48,8 @@ const Profile = () => {
     const [croppedAreaPixels, setCroppedAreaPixels] = useState<any>(null);
     const [uploadingTarget, setUploadingTarget] = useState<'avatar' | 'cover' | null>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
+
+    const getToken = () => localStorage.getItem('authToken');
 
     const onCropComplete = useCallback((croppedArea: any, croppedAreaPixels: any) => {
         setCroppedAreaPixels(croppedAreaPixels);
@@ -89,38 +93,30 @@ const Profile = () => {
             const croppedImageBlob = await getCroppedImg(cropImageSrc, croppedAreaPixels);
             if (!croppedImageBlob) throw new Error('Could not crop image');
 
-            const fileName = `${user?.id}/${Math.random().toString(36).substring(7)}_${uploadingTarget}.jpg`;
-            const bucketName = 'avatars';
+            // --- LOCAL UPLOAD REPLACEMENT ---
+            const token = getToken();
+            if (!token) throw new Error('Not authenticated');
 
-            // Try to create the bucket if it doesn't exist (works only if RLS allows or anon creation enabled)
-            const { error: createBucketError } = await supabase.storage.createBucket(bucketName, {
-                public: true,
-                fileSizeLimit: 1024 * 1024 * 2,
-                allowedMimeTypes: ['image/*']
+            const formData = new FormData();
+            formData.append('file', croppedImageBlob, 'image.jpg');
+
+            const res = await fetch(`${API_URL}/api/upload`, {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${token}`
+                },
+                body: formData
             });
 
-            // We ignore Duplicate error, but log others
-            if (createBucketError && (createBucketError as any).error !== 'Duplicate') {
-                console.log("Auto-creation of bucket skipped/failed:", createBucketError);
+            if (!res.ok) {
+                const err = await res.json();
+                throw new Error(err.error || 'Upload failed');
             }
 
-            const { data, error } = await supabase.storage
-                .from(bucketName)
-                .upload(fileName, croppedImageBlob, {
-                    upsert: true
-                });
+            const data = await res.json();
 
-            if (error) {
-                if (error.message.includes("Bucket not found")) {
-                    throw new Error(`The storage bucket "${bucketName}" does not exist. Please go to your Supabase Manager -> Storage and create a new public bucket named "${bucketName}".`);
-                }
-                throw new Error(`Upload failed: ${error.message}`);
-            }
-
-            const { data: publicUrlData } = supabase.storage.from(bucketName).getPublicUrl(fileName);
-
-            if (uploadingTarget === 'avatar') setTempAvatarUrl(publicUrlData.publicUrl);
-            else setTempCoverUrl(publicUrlData.publicUrl);
+            if (uploadingTarget === 'avatar') setTempAvatarUrl(data.url);
+            else setTempCoverUrl(data.url);
 
             setCropImageSrc(null);
             setUploadingTarget(null);
@@ -138,31 +134,49 @@ const Profile = () => {
         if (!user) return;
         setLoading(true);
 
-        const { error } = await supabase.auth.updateUser({
-            data: {
-                full_name: fullName,
-                avatar_url: tempAvatarUrl,
-                cover_url: tempCoverUrl,
-                github_link: githubUrl,
-                linkedin_link: linkedinUrl,
-            },
-        });
+        const token = getToken();
+        if (!token) {
+            setLoading(false);
+            return;
+        }
 
-        setLoading(false);
-
-        if (error) {
-            toast({
-                title: "Error updating profile",
-                description: error.message,
-                variant: "destructive",
+        try {
+            const res = await fetch(`${API_URL}/api/profile`, {
+                method: 'PUT',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
+                body: JSON.stringify({
+                    full_name: fullName,
+                    avatar_url: tempAvatarUrl,
+                    cover_url: tempCoverUrl,
+                    github_link: githubUrl,
+                    linkedin_link: linkedinUrl,
+                })
             });
-        } else {
+
+            if (!res.ok) {
+                const err = await res.json();
+                throw new Error(err.error || 'Update failed');
+            }
+
             toast({
                 title: "Profile updated",
                 description: "Your profile has been successfully updated.",
             });
             setIsEditing(false);
+            // Reload to refresh user context from useAuth
             window.location.reload();
+
+        } catch (error: any) {
+            toast({
+                title: "Error updating profile",
+                description: error.message,
+                variant: "destructive",
+            });
+        } finally {
+            setLoading(false);
         }
     };
 
@@ -187,6 +201,13 @@ const Profile = () => {
         return email.charAt(0).toUpperCase();
     };
 
+    // Helper to get display values (support both new flat structure and old user_metadata)
+    const displayName = user.full_name || user.user_metadata?.full_name || 'Community Member';
+    const displayAvatar = user.avatar_url || user.user_metadata?.avatar_url;
+    const displayCover = user.cover_url || user.user_metadata?.cover_url;
+    const displayGithub = user.github_link || user.user_metadata?.github_link;
+    const displayLinkedin = user.linkedin_link || user.user_metadata?.linkedin_link;
+
     return (
         <div className="min-h-screen bg-background text-foreground selection:bg-accent/20">
             <Navbar />
@@ -199,20 +220,20 @@ const Profile = () => {
                         {/* Banner */}
                         <div
                             className="h-48 rounded-2xl bg-gradient-to-r from-blue-600/20 to-purple-600/20 w-full mb-12 bg-cover bg-center"
-                            style={user.user_metadata?.cover_url ? { backgroundImage: `url(${user.user_metadata.cover_url})` } : {}}
+                            style={displayCover ? { backgroundImage: `url(${displayCover})` } : {}}
                         ></div>
 
                         {/* Avatar & Basic Info */}
                         <div className="absolute -bottom-6 left-8 flex items-end gap-6">
                             <Avatar className="h-32 w-32 border-4 border-background shadow-xl">
-                                <AvatarImage src={user.user_metadata?.avatar_url} className="object-cover" />
+                                <AvatarImage src={displayAvatar} className="object-cover" />
                                 <AvatarFallback className="bg-accent text-accent-foreground text-4xl">
                                     {getInitials(user.email)}
                                 </AvatarFallback>
                             </Avatar>
 
                             <div className="mb-8 space-y-1">
-                                <h1 className="text-3xl font-bold">{user.user_metadata?.full_name || 'Community Member'}</h1>
+                                <h1 className="text-3xl font-bold">{displayName}</h1>
                                 <p className="text-muted-foreground flex items-center gap-2">
                                     <Mail className="h-4 w-4" /> {user.email}
                                 </p>
@@ -345,7 +366,7 @@ const Profile = () => {
                                 <CardContent className="space-y-4">
                                     <div className="flex items-center gap-2 text-sm text-muted-foreground">
                                         <Calendar className="h-4 w-4" />
-                                        Joined {new Date(user.created_at).toLocaleDateString()}
+                                        Joined {user.created_at ? new Date(user.created_at).toLocaleDateString() : 'Unknown'}
                                     </div>
                                     <div className="flex items-center gap-2 text-sm text-muted-foreground">
                                         <MapPin className="h-4 w-4" />
@@ -363,8 +384,8 @@ const Profile = () => {
                                     <CardTitle className="text-lg">Connect</CardTitle>
                                 </CardHeader>
                                 <CardContent className="space-y-3">
-                                    {user.user_metadata?.github_link ? (
-                                        <a href={user.user_metadata.github_link} target="_blank" rel="noopener noreferrer" className="block">
+                                    {displayGithub ? (
+                                        <a href={displayGithub} target="_blank" rel="noopener noreferrer" className="block">
                                             <Button variant="ghost" className="w-full justify-start gap-2 h-auto py-2">
                                                 <LinkIcon className="h-4 w-4" /> GitHub
                                             </Button>
@@ -375,8 +396,8 @@ const Profile = () => {
                                         </Button>
                                     )}
 
-                                    {user.user_metadata?.linkedin_link ? (
-                                        <a href={user.user_metadata.linkedin_link} target="_blank" rel="noopener noreferrer" className="block">
+                                    {displayLinkedin ? (
+                                        <a href={displayLinkedin} target="_blank" rel="noopener noreferrer" className="block">
                                             <Button variant="ghost" className="w-full justify-start gap-2 h-auto py-2">
                                                 <LinkIcon className="h-4 w-4" /> LinkedIn
                                             </Button>

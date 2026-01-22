@@ -11,6 +11,9 @@ interface User {
     created_at?: string;
     full_name?: string;
     avatar_url?: string;
+    cover_url?: string;
+    github_link?: string;
+    linkedin_link?: string;
 }
 
 interface AuthContextType {
@@ -40,8 +43,17 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
                         email: data.user.email,
                         full_name: data.user.full_name,
                         avatar_url: data.user.avatar_url,
+                        cover_url: data.user.cover_url,
+                        github_link: data.user.github_link,
+                        linkedin_link: data.user.linkedin_link,
                         app_metadata: {},
-                        user_metadata: { full_name: data.user.full_name, avatar_url: data.user.avatar_url }
+                        user_metadata: {
+                            full_name: data.user.full_name,
+                            avatar_url: data.user.avatar_url,
+                            cover_url: data.user.cover_url,
+                            github_link: data.user.github_link,
+                            linkedin_link: data.user.linkedin_link
+                        }
                     });
                 } catch (err) {
                     console.error("Session expired", err);
@@ -66,6 +78,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
                     id: data.user.id,
                     email: data.user.email,
                     full_name: data.user.full_name,
+                    // Register might not return all profile fields immediately, but often minimal
                     user_metadata: { full_name: data.user.full_name }
                 });
             }
@@ -86,7 +99,16 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
                 email: data.user.email,
                 full_name: data.user.full_name,
                 avatar_url: data.user.avatar_url,
-                user_metadata: { full_name: data.user.full_name, avatar_url: data.user.avatar_url }
+                cover_url: data.user.cover_url,
+                github_link: data.user.github_link,
+                linkedin_link: data.user.linkedin_link,
+                user_metadata: {
+                    full_name: data.user.full_name,
+                    avatar_url: data.user.avatar_url,
+                    cover_url: data.user.cover_url,
+                    github_link: data.user.github_link,
+                    linkedin_link: data.user.linkedin_link
+                }
             });
             return { error: null };
         } catch (err: any) {
@@ -95,8 +117,10 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     };
 
     const signInWithOAuth = async (provider: 'google' | 'github') => {
-        alert("OAuth is not yet implemented with MySQL backend.");
-        return { error: new Error("Not implemented") };
+        // Redirect to backend OAuth endpoint
+        window.location.href = `${import.meta.env.VITE_SERVER_URL || 'http://localhost:3001'}/auth/${provider}`;
+        // The effective return happens via redirect, so this promise never really resolves in the current page context
+        return { error: null };
     };
 
     const signOut = async () => {
