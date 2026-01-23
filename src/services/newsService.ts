@@ -89,6 +89,7 @@ async function fetchFromHackerNews(): Promise<NewsArticle[]> {
         const response = await fetch('https://hacker-news.firebaseio.com/v0/topstories.json');
         const storyIds = await response.json();
 
+
         // Get first 20 stories
         // Get first 30 stories
         const storyPromises = storyIds.slice(0, 30).map(async (id: number) => {
