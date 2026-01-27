@@ -76,6 +76,7 @@ const Community = () => {
   // Create Channel State
   const [isCreateChannelOpen, setIsCreateChannelOpen] = useState(false);
   const [newChannelName, setNewChannelName] = useState('');
+  const [newChannelDescription, setNewChannelDescription] = useState('');
   const [newChannelType, setNewChannelType] = useState('text');
 
   // Report State
@@ -206,13 +207,22 @@ const Community = () => {
 
   const handleCreateChannel = async () => {
     if (!newChannelName.trim()) return;
-    await createChannel(newChannelName, newChannelType);
+    await createChannel(newChannelName, newChannelType, newChannelDescription);
     setNewChannelName('');
+    setNewChannelDescription('');
     setNewChannelType('text');
     setIsCreateChannelOpen(false);
   };
 
   const handleLike = async (postId: string) => {
+    if (!user) {
+      toast({
+        title: "Login Required",
+        description: "Please log in to like posts.",
+        variant: "destructive"
+      });
+      return;
+    }
     await toggleLike(postId);
   };
 
@@ -272,6 +282,14 @@ const Community = () => {
 
   // Report Handler
   const handleReport = (postId: string) => {
+    if (!user) {
+      toast({
+        title: "Login Required",
+        description: "Please log in to report content.",
+        variant: "destructive"
+      });
+      return;
+    }
     setReportPostId(postId);
     setReportDialogOpen(true);
   };
@@ -884,30 +902,44 @@ const Community = () => {
               <CardHeader className="pb-3">
                 <div className="flex items-center justify-between">
                   <CardTitle className="text-lg">Channels</CardTitle>
-                  <Dialog open={isCreateChannelOpen} onOpenChange={setIsCreateChannelOpen}>
-                    <DialogTrigger asChild>
-                      <Button variant="ghost" size="icon" className="h-8 w-8">
-                        <Plus className="h-4 w-4" />
-                      </Button>
-                    </DialogTrigger>
-                    <DialogContent>
-                      <DialogHeader>
-                        <DialogTitle>Create New Channel</DialogTitle>
-                      </DialogHeader>
-                      <div className="py-4">
-                        <Label>Channel Name</Label>
-                        <Input
-                          value={newChannelName}
-                          onChange={(e) => setNewChannelName(e.target.value)}
-                          placeholder="e.g. react-discussions"
-                          className="mt-2"
-                        />
-                      </div>
-                      <DialogFooter>
-                        <Button onClick={handleCreateChannel}>Create Channel</Button>
-                      </DialogFooter>
-                    </DialogContent>
-                  </Dialog>
+                  {user && (
+                    <Dialog open={isCreateChannelOpen} onOpenChange={setIsCreateChannelOpen}>
+                      <DialogTrigger asChild>
+                        <Button variant="ghost" size="icon" className="h-8 w-8">
+                          <Plus className="h-4 w-4" />
+                        </Button>
+                      </DialogTrigger>
+                      <DialogContent>
+                        <DialogHeader>
+                          <DialogTitle>Create New Channel</DialogTitle>
+                        </DialogHeader>
+                        <div className="space-y-4 py-4">
+                          <div>
+                            <Label>Channel Name</Label>
+                            <Input
+                              value={newChannelName}
+                              onChange={(e) => setNewChannelName(e.target.value)}
+                              placeholder="e.g. react-discussions"
+                              className="mt-2"
+                            />
+                          </div>
+                          <div>
+                            <Label>Description (Optional)</Label>
+                            <Textarea
+                              value={newChannelDescription}
+                              onChange={(e) => setNewChannelDescription(e.target.value)}
+                              placeholder="Channel description..."
+                              className="mt-2"
+                            />
+                          </div>
+                        </div>
+                        <DialogFooter>
+                          <Button variant="outline" onClick={() => setIsCreateChannelOpen(false)}>Cancel</Button>
+                          <Button onClick={handleCreateChannel}>Create Channel</Button>
+                        </DialogFooter>
+                      </DialogContent>
+                    </Dialog>
+                  )}
 
                   {/* Edit Channel Dialog */}
                   <Dialog open={editChannelDialogOpen} onOpenChange={setEditChannelDialogOpen}>
@@ -1078,111 +1110,114 @@ const Community = () => {
                 <Users className="h-4 w-4" />
                 Community
               </Button>
-              <Button
-                variant={categoryFilter === 'my-posts' ? 'default' : 'outline'}
-                size="sm"
-                className="gap-2 whitespace-nowrap"
-                onClick={() => setCategoryFilter('my-posts')}
-                disabled={!user}
-              >
-                <Star className="h-4 w-4" />
-                My Posts
-              </Button>
+              {user && (
+                <Button
+                  variant={categoryFilter === 'my-posts' ? 'default' : 'outline'}
+                  size="sm"
+                  className="gap-2 whitespace-nowrap"
+                  onClick={() => setCategoryFilter('my-posts')}
+                >
+                  <Star className="h-4 w-4" />
+                  My Posts
+                </Button>
+              )}
             </div>
 
             {/* Create Post Widget */}
-            <Card className="glass border-border/50 relative z-20">
-              <CardContent className="pt-6">
-                <div className="flex gap-4">
-                  <Avatar className="cursor-pointer hover:opacity-80 transition-opacity" onClick={() => navigate('/profile')}>
-                    <AvatarImage src={user?.user_metadata?.avatar_url} />
-                    <AvatarFallback>ME</AvatarFallback>
-                  </Avatar>
-                  <div className="flex-1 space-y-4">
-                    <div className="relative" ref={suggestionsRef}>
-                      <Input
-                        ref={postInputRef}
-                        placeholder={`What's happening in #${channels.find(c => c.id === activeChannel)?.name}?`}
-                        className="bg-transparent border-0 px-0 focus-visible:ring-0 placeholder:text-muted-foreground/70 text-lg"
-                        value={newPostContent}
-                        onChange={handlePostChange}
-                      />
-                      {showSuggestions && hashtagSuggestions.length > 0 && (
-                        <div className="absolute top-full mt-1 left-0 z-50 w-64 bg-background border rounded-md shadow-lg overflow-hidden">
-                          <div className="p-2 text-xs text-muted-foreground border-b">Suggested Topics</div>
-                          {hashtagSuggestions.map(tag => (
-                            <div
-                              key={tag.name}
-                              className="px-4 py-2 hover:bg-muted cursor-pointer flex justify-between items-center"
-                              onClick={() => selectSuggestion(tag.name)}
-                            >
-                              <span className="font-medium">#{tag.name}</span>
-                              <span className="text-xs text-muted-foreground">{tag.count} posts</span>
-                            </div>
-                          ))}
+            {user && (
+              <Card className="glass border-border/50 relative z-20">
+                <CardContent className="pt-6">
+                  <div className="flex gap-4">
+                    <Avatar className="cursor-pointer hover:opacity-80 transition-opacity" onClick={() => navigate('/profile')}>
+                      <AvatarImage src={user?.user_metadata?.avatar_url} />
+                      <AvatarFallback>ME</AvatarFallback>
+                    </Avatar>
+                    <div className="flex-1 space-y-4">
+                      <div className="relative" ref={suggestionsRef}>
+                        <Input
+                          ref={postInputRef}
+                          placeholder={`What's happening in #${channels.find(c => c.id === activeChannel)?.name}?`}
+                          className="bg-transparent border-0 px-0 focus-visible:ring-0 placeholder:text-muted-foreground/70 text-lg"
+                          value={newPostContent}
+                          onChange={handlePostChange}
+                        />
+                        {showSuggestions && hashtagSuggestions.length > 0 && (
+                          <div className="absolute top-full mt-1 left-0 z-50 w-64 bg-background border rounded-md shadow-lg overflow-hidden">
+                            <div className="p-2 text-xs text-muted-foreground border-b">Suggested Topics</div>
+                            {hashtagSuggestions.map(tag => (
+                              <div
+                                key={tag.name}
+                                className="px-4 py-2 hover:bg-muted cursor-pointer flex justify-between items-center"
+                                onClick={() => selectSuggestion(tag.name)}
+                              >
+                                <span className="font-medium">#{tag.name}</span>
+                                <span className="text-xs text-muted-foreground">{tag.count} posts</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                      {/* PREVIEW */}
+                      {newPostImage && (
+                        <div className="relative rounded-lg overflow-hidden h-48 bg-muted">
+                          <img src={newPostImage} className="w-full h-full object-cover" />
+                          <Button
+                            variant="destructive"
+                            size="icon"
+                            className="absolute top-2 right-2 h-6 w-6"
+                            onClick={() => setNewPostImage('')}
+                          >
+                            x
+                          </Button>
                         </div>
                       )}
-                    </div>
-                    {/* PREVIEW */}
-                    {newPostImage && (
-                      <div className="relative rounded-lg overflow-hidden h-48 bg-muted">
-                        <img src={newPostImage} className="w-full h-full object-cover" />
-                        <Button
-                          variant="destructive"
-                          size="icon"
-                          className="absolute top-2 right-2 h-6 w-6"
-                          onClick={() => setNewPostImage('')}
-                        >
-                          x
+                      <Separator />
+                      <div className="flex items-center justify-between">
+                        <div className="flex gap-2">
+                          {/* Hidden Input */}
+                          <input
+                            type="file"
+                            ref={fileInputRef}
+                            className="hidden"
+                            accept="image/*"
+                            onChange={handleFileSelect}
+                          />
+
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="text-muted-foreground hover:text-accent gap-2"
+                            onClick={onMediaClick}
+                          >
+                            <ImageIcon className="h-4 w-4" /> Media
+                          </Button>
+
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="text-muted-foreground hover:text-accent gap-2"
+                            onClick={() => {
+                              fetch(`${API_URL}/api/community/hashtags`)
+                                .then(res => res.json())
+                                .then(data => {
+                                  setHashtagSuggestions(data);
+                                  setShowSuggestions(true);
+                                  setTimeout(() => postInputRef.current?.focus(), 0);
+                                });
+                            }}
+                          >
+                            <HashtagIcon className="h-4 w-4" /> Topic
+                          </Button>
+                        </div>
+                        <Button onClick={handleCreatePost} disabled={!newPostContent.trim()}>
+                          Post
                         </Button>
                       </div>
-                    )}
-                    <Separator />
-                    <div className="flex items-center justify-between">
-                      <div className="flex gap-2">
-                        {/* Hidden Input */}
-                        <input
-                          type="file"
-                          ref={fileInputRef}
-                          className="hidden"
-                          accept="image/*"
-                          onChange={handleFileSelect}
-                        />
-
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="text-muted-foreground hover:text-accent gap-2"
-                          onClick={onMediaClick}
-                        >
-                          <ImageIcon className="h-4 w-4" /> Media
-                        </Button>
-
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="text-muted-foreground hover:text-accent gap-2"
-                          onClick={() => {
-                            fetch(`${API_URL}/api/community/hashtags`)
-                              .then(res => res.json())
-                              .then(data => {
-                                setHashtagSuggestions(data);
-                                setShowSuggestions(true);
-                                setTimeout(() => postInputRef.current?.focus(), 0);
-                              });
-                          }}
-                        >
-                          <HashtagIcon className="h-4 w-4" /> Topic
-                        </Button>
-                      </div>
-                      <Button onClick={handleCreatePost} disabled={!newPostContent.trim()}>
-                        Post
-                      </Button>
                     </div>
                   </div>
-                </div>
-              </CardContent>
-            </Card>
+                </CardContent>
+              </Card>
+            )}
 
             {/* Feed */}
             <div className="space-y-4">
@@ -1260,6 +1295,7 @@ const Community = () => {
                       >
                         <Heart className={`h-4 w-4 ${post.liked ? 'fill-current' : ''}`} /> {post.likes}
                       </Button>
+
                       <Button
                         variant="ghost"
                         size="sm"
@@ -1268,6 +1304,7 @@ const Community = () => {
                       >
                         <MessageCircle className="h-4 w-4" /> {post.comments_count}
                       </Button>
+
                       <Button
                         variant="ghost"
                         size="sm"
@@ -1463,17 +1500,23 @@ const Community = () => {
                   </div>
                 </ScrollArea>
                 <div className="absolute bottom-0 left-0 right-0 p-3 bg-background/80 backdrop-blur-md border-t border-border/50">
-                  <form onSubmit={handleSendMessage} className="flex gap-2">
-                    <Input
-                      value={chatInput}
-                      onChange={(e) => setChatInput(e.target.value)}
-                      placeholder="Say hi..."
-                      className="h-8 text-sm"
-                    />
-                    <Button type="submit" size="icon" className="h-8 w-8 shrink-0">
-                      <Send className="h-3 w-3" />
-                    </Button>
-                  </form>
+                  {user ? (
+                    <form onSubmit={handleSendMessage} className="flex gap-2">
+                      <Input
+                        value={chatInput}
+                        onChange={(e) => setChatInput(e.target.value)}
+                        placeholder="Say hi..."
+                        className="h-8 text-sm"
+                      />
+                      <Button type="submit" size="icon" className="h-8 w-8 shrink-0">
+                        <Send className="h-3 w-3" />
+                      </Button>
+                    </form>
+                  ) : (
+                    <div className="text-center text-sm text-muted-foreground p-1">
+                      Login to chat
+                    </div>
+                  )}
                 </div>
               </CardContent>
             </Card>
