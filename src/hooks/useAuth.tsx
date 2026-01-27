@@ -14,6 +14,9 @@ interface User {
     cover_url?: string;
     github_link?: string;
     linkedin_link?: string;
+    location?: string;
+    bio?: string;
+    website_link?: string;
 }
 
 interface AuthContextType {
@@ -46,13 +49,20 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
                         cover_url: data.user.cover_url,
                         github_link: data.user.github_link,
                         linkedin_link: data.user.linkedin_link,
+                        location: data.user.location,
+                        bio: data.user.bio,
+                        website_link: data.user.website_link,
+                        created_at: data.user.created_at,
                         app_metadata: {},
                         user_metadata: {
                             full_name: data.user.full_name,
                             avatar_url: data.user.avatar_url,
                             cover_url: data.user.cover_url,
                             github_link: data.user.github_link,
-                            linkedin_link: data.user.linkedin_link
+                            linkedin_link: data.user.linkedin_link,
+                            location: data.user.location,
+                            bio: data.user.bio,
+                            website_link: data.user.website_link
                         }
                     });
                 } catch (err) {
@@ -102,12 +112,19 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
                 cover_url: data.user.cover_url,
                 github_link: data.user.github_link,
                 linkedin_link: data.user.linkedin_link,
+                location: data.user.location,
+                bio: data.user.bio,
+                website_link: data.user.website_link,
+                created_at: data.user.created_at,
                 user_metadata: {
                     full_name: data.user.full_name,
                     avatar_url: data.user.avatar_url,
                     cover_url: data.user.cover_url,
                     github_link: data.user.github_link,
-                    linkedin_link: data.user.linkedin_link
+                    linkedin_link: data.user.linkedin_link,
+                    location: data.user.location,
+                    bio: data.user.bio,
+                    website_link: data.user.website_link
                 }
             });
             return { error: null };

@@ -412,7 +412,14 @@ app.post('/api/auth/login', async (req, res) => {
                 id: user.id,
                 email: user.email,
                 full_name: profile.full_name,
-                avatar_url: profile.avatar_url
+                avatar_url: profile.avatar_url,
+                cover_url: profile.cover_url,
+                github_link: profile.github_link,
+                linkedin_link: profile.linkedin_link,
+                location: profile.location,
+                bio: profile.bio,
+                website_link: profile.website_link,
+                created_at: user.created_at
             },
             token
         });
@@ -423,10 +430,10 @@ app.post('/api/auth/login', async (req, res) => {
     }
 });
 
-// GET ME (Session check)
+// GET ME (Session check) - Extended Profile
 app.get('/api/auth/me', verifyToken, async (req, res) => {
     try {
-        const [rows] = await pool.execute('SELECT id, email FROM users WHERE id = ?', [req.userId]);
+        const [rows] = await pool.execute('SELECT id, email, created_at FROM users WHERE id = ?', [req.userId]);
         if (rows.length === 0) return res.status(404).json({ error: 'User not found' });
 
         const user = rows[0];
@@ -438,7 +445,14 @@ app.get('/api/auth/me', verifyToken, async (req, res) => {
                 id: user.id,
                 email: user.email,
                 full_name: profile.full_name,
-                avatar_url: profile.avatar_url
+                avatar_url: profile.avatar_url,
+                cover_url: profile.cover_url,
+                github_link: profile.github_link,
+                linkedin_link: profile.linkedin_link,
+                location: profile.location,
+                bio: profile.bio,
+                website_link: profile.website_link,
+                created_at: user.created_at
             }
         });
     } catch (err) {
@@ -1239,16 +1253,16 @@ app.post('/api/upload', verifyToken, upload.single('file'), async (req, res) => 
 
 // 10. UPDATE PROFILE (Protected)
 app.put('/api/profile', verifyToken, async (req, res) => {
-    const { full_name, github_link, linkedin_link, avatar_url, cover_url } = req.body;
+    const { full_name, github_link, linkedin_link, avatar_url, cover_url, location, bio, website_link } = req.body;
 
     try {
         await pool.execute(
-            'UPDATE profiles SET full_name = ?, github_link = ?, linkedin_link = ?, avatar_url = ?, cover_url = ?, updated_at = NOW() WHERE user_id = ?',
-            [full_name, github_link, linkedin_link, avatar_url, cover_url, req.userId]
+            'UPDATE profiles SET full_name = ?, github_link = ?, linkedin_link = ?, avatar_url = ?, cover_url = ?, location = ?, bio = ?, website_link = ?, updated_at = NOW() WHERE user_id = ?',
+            [full_name, github_link, linkedin_link, avatar_url, cover_url, location || null, bio || null, website_link || null, req.userId]
         );
 
         // Return updated user data (similar to /me)
-        const [rows] = await pool.execute('SELECT id, email FROM users WHERE id = ?', [req.userId]);
+        const [rows] = await pool.execute('SELECT id, email, created_at FROM users WHERE id = ?', [req.userId]);
         const user = rows[0];
         const [profiles] = await pool.execute('SELECT * FROM profiles WHERE user_id = ?', [req.userId]);
         const profile = profiles[0] || {};
@@ -1261,12 +1275,83 @@ app.put('/api/profile', verifyToken, async (req, res) => {
                 avatar_url: profile.avatar_url,
                 cover_url: profile.cover_url,
                 github_link: profile.github_link,
-                linkedin_link: profile.linkedin_link
+                linkedin_link: profile.linkedin_link,
+                location: profile.location,
+                bio: profile.bio,
+                website_link: profile.website_link,
+                created_at: user.created_at
             }
         });
     } catch (err) {
         console.error("Update Profile Error:", err);
         res.status(500).json({ error: 'Server error updating profile' });
+    }
+});
+
+// 11. GET PROFILE ACTIVITY
+app.get('/api/profile/activity', verifyToken, async (req, res) => {
+    try {
+        // Query: Posts I authored OR Posts I liked
+        // We use UNION to combine them.
+        const query = `
+            SELECT * FROM (
+                SELECT p.*, 
+                    'posted' as activity_type,
+                    p.created_at as activity_date
+                FROM posts p
+                WHERE p.author_id = ?
+
+                UNION
+
+                SELECT p.*,
+                    'liked' as activity_type,
+                    pl.created_at as activity_date
+                FROM posts p
+                JOIN post_likes pl ON p.id = pl.post_id
+                WHERE pl.user_id = ?
+            ) as activity
+            ORDER BY activity_date DESC
+            LIMIT 5
+        `;
+
+        const [rows] = await pool.query(query, [req.userId, req.userId]);
+
+        // We need to fetch author details and like counts for these posts
+        // It's easier to fetch the IDs first, then fetch details, or do a big join
+        // Let's iterate and enrich, or do a better join upfront.
+        // A better join is complex with the UNION. Let's do a second simple pass for details if rows exist.
+
+        if (rows.length === 0) return res.json([]);
+
+        const enrichedPosts = await Promise.all(rows.map(async (post) => {
+            const [authors] = await pool.query(`
+                SELECT u.email, COALESCE(p.author_name, pr.full_name, 'Anonymous') as name, COALESCE(p.author_avatar, pr.avatar_url) as avatar
+                FROM posts p
+                LEFT JOIN users u ON p.author_id = u.id
+                LEFT JOIN profiles pr ON u.id = pr.user_id
+                WHERE p.id = ?
+            `, [post.id]);
+
+            const [stats] = await pool.query(`
+                SELECT 
+                    (SELECT COUNT(*) FROM post_likes WHERE post_id = ?) as likes_count,
+                    (SELECT COUNT(*) FROM chat_messages WHERE reply_to_post_id = ?) as replies_count
+            `, [post.id, post.id]);
+
+            return {
+                ...post,
+                author_name: authors[0]?.name || 'Anonymous',
+                author_avatar: authors[0]?.avatar,
+                likes_count: stats[0].likes_count,
+                replies_count: stats[0].replies_count
+            };
+        }));
+
+        res.json(enrichedPosts);
+
+    } catch (err) {
+        console.error("Get Activity Error:", err);
+        res.status(500).json({ error: 'Server error fetching activity' });
     }
 });
 
@@ -1371,6 +1456,7 @@ app.listen(PORT, async () => {
         // Ensure image_url columns are large enough for Base64 (MEDIUMTEXT ~16MB)
         await pool.query("ALTER TABLE posts MODIFY image_url LONGTEXT");
         await pool.query("ALTER TABLE profiles MODIFY avatar_url LONGTEXT");
+        await pool.query("ALTER TABLE profiles MODIFY cover_url LONGTEXT");
 
         // Ensure Channels Table
         await pool.query(`
@@ -1407,6 +1493,22 @@ app.listen(PORT, async () => {
             console.log('Added comments_count column to posts.');
         } catch (e) {
             // Ignore if column exists
+        }
+
+        // Ensure Profiles Table has new columns
+        const profileCols = [
+            { name: 'github_link', type: 'VARCHAR(255)' },
+            { name: 'linkedin_link', type: 'VARCHAR(255)' },
+            { name: 'cover_url', type: 'LONGTEXT' }
+        ];
+
+        for (const col of profileCols) {
+            try {
+                await pool.query(`ALTER TABLE profiles ADD COLUMN ${col.name} ${col.type}`);
+                console.log(`Added ${col.name} column to profiles.`);
+            } catch (e) {
+                // Ignore if column exists
+            }
         }
 
         // Seed Default Channels with Proper UUIDs
