@@ -71,13 +71,26 @@ const pool = mysql.createPool({
 // Helper: Email Transporter
 const transporter = nodemailer.createTransport({
     host: process.env.SMTP_HOST,
-    port: parseInt(process.env.SMTP_PORT),
-    secure: false, // true for 465, false for other ports
+    port: parseInt(process.env.SMTP_PORT) || 587,
+    secure: false, // true for 465, false for 587
     auth: {
-        user: process.env.SMTP_USER, // User must set this
-        pass: process.env.SMTP_PASS, // User must set this
+        user: process.env.SMTP_USER,
+        pass: process.env.SMTP_PASS,
     },
+    tls: {
+        rejectUnauthorized: false // For development - remove in production
+    }
 });
+
+// Verify email configuration on startup
+transporter.verify(function (error, success) {
+    if (error) {
+        console.error('❌ Email transporter error:', error);
+    } else {
+        console.log('✅ Email server is ready to send messages');
+    }
+});
+
 
 // Middleware to verify JWT
 const verifyToken = (req, res, next) => {
@@ -845,6 +858,357 @@ app.post('/api/community/chat', verifyToken, async (req, res) => {
     }
 });
 
+// 8. SUBMIT REPORT (Protected) - MOVED TO 10d
+// This endpoint was duplicated. Removed to allow the implementation with email notifications to work.
+
+
+// 9. GET COMMENTS FOR POST
+app.get('/api/community/posts/:postId/comments', async (req, res) => {
+    const { postId } = req.params;
+
+    try {
+        // Create comments table if it doesn't exist
+        await pool.execute(`
+            CREATE TABLE IF NOT EXISTS comments (
+                id VARCHAR(36) PRIMARY KEY,
+                post_id VARCHAR(36) NOT NULL,
+                user_id VARCHAR(36) NOT NULL,
+                user_name VARCHAR(255),
+                user_avatar TEXT,
+                content TEXT NOT NULL,
+                created_at DATETIME DEFAULT NOW(),
+                FOREIGN KEY (post_id) REFERENCES posts(id) ON DELETE CASCADE,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            )
+        `);
+
+        const [comments] = await pool.execute(`
+            SELECT c.*
+            FROM comments c
+            WHERE c.post_id = ?
+            ORDER BY c.created_at ASC
+        `, [postId]);
+
+        res.json(comments);
+    } catch (err) {
+        console.error("Get Comments Error:", err);
+        res.status(500).json({ error: 'Server error fetching comments' });
+    }
+});
+
+// 10. POST COMMENT (Protected)
+app.post('/api/community/posts/:postId/comments', verifyToken, async (req, res) => {
+    const { postId } = req.params;
+    const { content } = req.body;
+    if (!content) return res.status(400).json({ error: 'Comment content is required' });
+
+    try {
+        const id = uuidv4();
+
+        // Get user info for denormalization
+        const [profiles] = await pool.execute(
+            'SELECT full_name, avatar_url FROM profiles WHERE user_id = ?',
+            [req.userId]
+        );
+        const userName = profiles[0]?.full_name || 'Anonymous';
+        const userAvatar = profiles[0]?.avatar_url || null;
+
+        await pool.execute(
+            'INSERT INTO comments (id, post_id, user_id, user_name, user_avatar, content, created_at) VALUES (?, ?, ?, ?, ?, ?, NOW())',
+            [id, postId, req.userId, userName, userAvatar, content]
+        );
+
+        // Update comments count on the post
+        await pool.execute(
+            'UPDATE posts SET comments_count = comments_count + 1 WHERE id = ?',
+            [postId]
+        );
+
+        // Return the new comment
+        const [newComment] = await pool.execute(
+            'SELECT * FROM comments WHERE id = ?',
+            [id]
+        );
+
+        res.json(newComment[0]);
+    } catch (err) {
+        console.error("Post Comment Error:", err);
+        res.status(500).json({ error: 'Server error posting comment' });
+    }
+});
+
+// 10b. EDIT COMMENT (Protected)
+app.put('/api/community/comments/:commentId', verifyToken, async (req, res) => {
+    const { commentId } = req.params;
+    const { content } = req.body;
+    if (!content) return res.status(400).json({ error: 'Comment content is required' });
+
+    try {
+        // Check if user is the comment author
+        const [comments] = await pool.execute('SELECT user_id FROM comments WHERE id = ?', [commentId]);
+        if (comments.length === 0) {
+            return res.status(404).json({ error: 'Comment not found' });
+        }
+
+        if (comments[0].user_id !== req.userId) {
+            return res.status(403).json({ error: 'Unauthorized to edit this comment' });
+        }
+
+        await pool.execute(
+            'UPDATE comments SET content = ? WHERE id = ?',
+            [content, commentId]
+        );
+
+        // Return updated comment
+        const [updatedComment] = await pool.execute(
+            'SELECT * FROM comments WHERE id = ?',
+            [commentId]
+        );
+
+        res.json(updatedComment[0]);
+    } catch (err) {
+        console.error("Edit Comment Error:", err);
+        res.status(500).json({ error: 'Server error editing comment' });
+    }
+});
+
+// 10c. DELETE COMMENT (Protected)
+app.delete('/api/community/comments/:commentId', verifyToken, async (req, res) => {
+    const { commentId } = req.params;
+
+    try {
+        // Check if user is the comment author
+        const [comments] = await pool.execute('SELECT user_id, post_id FROM comments WHERE id = ?', [commentId]);
+        if (comments.length === 0) {
+            return res.status(404).json({ error: 'Comment not found' });
+        }
+
+        if (comments[0].user_id !== req.userId) {
+            return res.status(403).json({ error: 'Unauthorized to delete this comment' });
+        }
+
+        const postId = comments[0].post_id;
+
+        await pool.execute('DELETE FROM comments WHERE id = ?', [commentId]);
+
+        // Decrement comments count on the post
+        await pool.execute(
+            'UPDATE posts SET comments_count = GREATEST(comments_count - 1, 0) WHERE id = ?',
+            [postId]
+        );
+
+        res.json({ success: true, message: 'Comment deleted successfully' });
+    } catch (err) {
+        console.error("Delete Comment Error:", err);
+        res.status(500).json({ error: 'Server error deleting comment' });
+    }
+});
+
+// 10d. SUBMIT REPORT (Protected)
+app.post('/api/community/reports', verifyToken, async (req, res) => {
+    const { post_id, reason, custom_reason } = req.body;
+
+    if (!post_id || !reason) {
+        return res.status(400).json({ error: 'Post ID and reason are required' });
+    }
+
+    try {
+        // Create reports table if it doesn't exist
+        await pool.execute(`
+            CREATE TABLE IF NOT EXISTS reports (
+                id VARCHAR(36) PRIMARY KEY,
+                post_id VARCHAR(36) NOT NULL,
+                reporter_id VARCHAR(36) NOT NULL,
+                reason VARCHAR(255) NOT NULL,
+                custom_reason TEXT,
+                status VARCHAR(50) DEFAULT 'pending',
+                created_at DATETIME DEFAULT NOW(),
+                FOREIGN KEY (post_id) REFERENCES posts(id) ON DELETE CASCADE,
+                FOREIGN KEY (reporter_id) REFERENCES users(id) ON DELETE CASCADE
+            )
+        `);
+
+        const reportId = uuidv4();
+
+        // Insert report into database
+        await pool.execute(
+            'INSERT INTO reports (id, post_id, reporter_id, reason, custom_reason, created_at) VALUES (?, ?, ?, ?, ?, NOW())',
+            [reportId, post_id, req.userId, reason, custom_reason || null]
+        );
+
+        // Get post details and reporter info for email
+        const [posts] = await pool.execute(`
+            SELECT p.*, 
+                   u.email as author_email,
+                   pr.full_name as author_name,
+                   (SELECT COUNT(*) FROM post_likes WHERE post_id = p.id) as likes_count
+            FROM posts p
+            JOIN users u ON p.author_id = u.id
+            LEFT JOIN profiles pr ON u.id = pr.user_id
+            WHERE p.id = ?
+        `, [post_id]);
+
+        const [reporters] = await pool.execute(`
+            SELECT u.email, pr.full_name
+            FROM users u
+            LEFT JOIN profiles pr ON u.id = pr.user_id
+            WHERE u.id = ?
+        `, [req.userId]);
+
+        if (posts.length > 0 && reporters.length > 0) {
+            const post = posts[0];
+            const reporter = reporters[0];
+
+            console.log('📝 Report Email - Post Details:', JSON.stringify(post, null, 2));
+
+            // Prepare email content
+            const emailSubject = `🚨 New Content Report - ${reason}`;
+            const emailBody = `
+                <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f5f5f5;">
+                    <div style="background-color: #ffffff; border-radius: 8px; padding: 30px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+                        <h2 style="color: #ef4444; margin-top: 0;">⚠️ Content Report Received</h2>
+                        
+                        <div style="background-color: #fef2f2; border-left: 4px solid #ef4444; padding: 15px; margin: 20px 0;">
+                            <h3 style="margin-top: 0; color: #991b1b;">Report Details</h3>
+                            <p><strong>Report ID:</strong> ${reportId}</p>
+                            <p><strong>Reason:</strong> ${reason}</p>
+                            ${custom_reason ? `<p><strong>Additional Details:</strong> ${custom_reason}</p>` : ''}
+                            <p><strong>Reported By:</strong> ${reporter.full_name || 'Anonymous'} (${reporter.email})</p>
+                        </div>
+
+                        <div style="background-color: #f9fafb; border-radius: 6px; padding: 15px; margin: 20px 0;">
+                            <h3 style="margin-top: 0; color: #374151;">Reported Post</h3>
+                            <p><strong>Post ID:</strong> ${post_id}</p>
+                            <p><strong>Author:</strong> ${post.author_name || 'Unknown'} (${post.author_email})</p>
+                            <p><strong>Content:</strong></p>
+                            <div style="background-color: #ffffff; padding: 10px; border-radius: 4px; margin-top: 10px;">
+                                ${post.content.substring(0, 200)}${post.content.length > 200 ? '...' : ''}
+                            </div>
+                            ${post.image_url ? `<p><strong>Has Image:</strong> Yes</p>` : ''}
+                            <p><strong>Posted:</strong> ${new Date(post.created_at).toLocaleString()}</p>
+                            <p><strong>Likes:</strong> ${post.likes_count ?? 0} | <strong>Comments:</strong> ${post.comments_count ?? 0}</p>
+                        </div>
+
+                        <div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #e5e7eb;">
+                            <p style="color: #6b7280; font-size: 14px; margin: 0;">
+                                This is an automated notification from HSM Developer Hub Community Moderation System.
+                            </p>
+                            <p style="color: #6b7280; font-size: 14px; margin: 5px 0 0 0;">
+                                Please review this report and take appropriate action.
+                            </p>
+                        </div>
+                    </div>
+                </div>
+            `;
+
+            // Send email to admin
+            try {
+                console.log('📧 Attempting to send report email...');
+                console.log('From:', process.env.SMTP_USER);
+                console.log('To:', process.env.SMTP_USER);
+                console.log('Subject:', emailSubject);
+
+                const info = await transporter.sendMail({
+                    from: `"HSM Developer Hub" <${process.env.SMTP_USER}>`,
+                    to: process.env.SMTP_USER, // Admin email
+                    subject: emailSubject,
+                    html: emailBody
+                });
+
+                console.log(`✅ Report email sent successfully!`);
+                console.log('Message ID:', info.messageId);
+                console.log('Response:', info.response);
+            } catch (emailError) {
+                console.error('❌ Failed to send report email:');
+                console.error('Error name:', emailError.name);
+                console.error('Error message:', emailError.message);
+                console.error('Error stack:', emailError.stack);
+                // Don't fail the request if email fails
+            }
+        }
+
+        res.json({
+            success: true,
+            message: 'Report submitted successfully. Our team will review it shortly.',
+            reportId
+        });
+    } catch (err) {
+        console.error("Submit Report Error:", err);
+        res.status(500).json({ error: 'Server error submitting report' });
+    }
+});
+
+// 11. UPDATE CHANNEL (Protected)
+app.put('/api/community/channels/:channelId', verifyToken, async (req, res) => {
+    const { channelId } = req.params;
+    const { name, description } = req.body;
+    if (!name) return res.status(400).json({ error: 'Channel name is required' });
+
+    try {
+        // Check if user is the channel creator or an admin
+        const [channels] = await pool.execute('SELECT created_by FROM channels WHERE id = ?', [channelId]);
+        if (channels.length === 0) {
+            return res.status(404).json({ error: 'Channel not found' });
+        }
+
+        const channel = channels[0];
+        if (channel.created_by !== req.userId) {
+            // Check if user is admin
+            const [roles] = await pool.execute(
+                'SELECT role FROM user_roles WHERE user_id = ?',
+                [req.userId]
+            );
+            const isAdmin = roles.some(r => r.role === 'admin');
+            if (!isAdmin) {
+                return res.status(403).json({ error: 'Unauthorized to edit this channel' });
+            }
+        }
+
+        await pool.execute(
+            'UPDATE channels SET name = ?, description = ?, updated_at = NOW() WHERE id = ?',
+            [name, description || null, channelId]
+        );
+
+        const [updatedChannel] = await pool.execute('SELECT * FROM channels WHERE id = ?', [channelId]);
+        res.json(updatedChannel[0]);
+    } catch (err) {
+        console.error("Update Channel Error:", err);
+        res.status(500).json({ error: 'Server error updating channel' });
+    }
+});
+
+// 12. DELETE CHANNEL (Protected)
+app.delete('/api/community/channels/:channelId', verifyToken, async (req, res) => {
+    const { channelId } = req.params;
+
+    try {
+        // Check if user is the channel creator or an admin
+        const [channels] = await pool.execute('SELECT created_by FROM channels WHERE id = ?', [channelId]);
+        if (channels.length === 0) {
+            return res.status(404).json({ error: 'Channel not found' });
+        }
+
+        const channel = channels[0];
+        if (channel.created_by !== req.userId) {
+            // Check if user is admin
+            const [roles] = await pool.execute(
+                'SELECT role FROM user_roles WHERE user_id = ?',
+                [req.userId]
+            );
+            const isAdmin = roles.some(r => r.role === 'admin');
+            if (!isAdmin) {
+                return res.status(403).json({ error: 'Unauthorized to delete this channel' });
+            }
+        }
+
+        await pool.execute('DELETE FROM channels WHERE id = ?', [channelId]);
+        res.json({ success: true, message: 'Channel deleted successfully' });
+    } catch (err) {
+        console.error("Delete Channel Error:", err);
+        res.status(500).json({ error: 'Server error deleting channel' });
+    }
+});
+
 // --- PROFILE ROUTES ---
 
 // 9. UPLOAD IMAGE (Protected)
@@ -1007,6 +1371,77 @@ app.listen(PORT, async () => {
         // Ensure image_url columns are large enough for Base64 (MEDIUMTEXT ~16MB)
         await pool.query("ALTER TABLE posts MODIFY image_url LONGTEXT");
         await pool.query("ALTER TABLE profiles MODIFY avatar_url LONGTEXT");
+
+        // Ensure Channels Table
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS channels (
+                id VARCHAR(36) PRIMARY KEY,
+                slug VARCHAR(255) UNIQUE NOT NULL,
+                name VARCHAR(255) NOT NULL,
+                description TEXT,
+                created_by VARCHAR(36),
+                created_at DATETIME DEFAULT NOW(),
+                updated_at DATETIME DEFAULT NOW()
+            )
+        `);
+
+        // Check/Add created_by to channels if missing
+        try {
+            await pool.query("ALTER TABLE channels ADD COLUMN created_by VARCHAR(36)");
+            console.log('Added created_by column to channels.');
+        } catch (e) {
+            // Ignore if column exists
+        }
+
+        // Check/Add updated_at to channels if missing
+        try {
+            await pool.query("ALTER TABLE channels ADD COLUMN updated_at DATETIME DEFAULT NOW()");
+            console.log('Added updated_at column to channels.');
+        } catch (e) {
+            // Ignore if column exists
+        }
+
+        // Check/Add comments_count to posts if missing
+        try {
+            await pool.query("ALTER TABLE posts ADD COLUMN comments_count INT DEFAULT 0");
+            console.log('Added comments_count column to posts.');
+        } catch (e) {
+            // Ignore if column exists
+        }
+
+        // Seed Default Channels with Proper UUIDs
+        const defaultChannels = [
+            { slug: 'general', name: 'General', description: 'General discussion' },
+            { slug: 'ai-news', name: 'AI News & Tech', description: 'Latest AI news' },
+            { slug: 'tech-memes', name: 'Tech Memes', description: 'Memes and fun' }
+        ];
+
+        for (const ch of defaultChannels) {
+            try {
+                // Check if channel already exists by slug
+                const [existing] = await pool.query('SELECT id FROM channels WHERE slug = ?', [ch.slug]);
+
+                if (existing.length === 0) {
+                    // Create new channel with UUID
+                    const channelId = uuidv4();
+                    await pool.query(`
+                        INSERT INTO channels (id, slug, name, description, created_at, updated_at)
+                        VALUES (?, ?, ?, ?, NOW(), NOW())
+                    `, [channelId, ch.slug, ch.name, ch.description]);
+                    console.log(`✅ Created channel: ${ch.name} (${channelId})`);
+                } else {
+                    // Update existing channel name/description if needed
+                    await pool.query(`
+                        UPDATE channels 
+                        SET name = ?, description = ?, updated_at = NOW()
+                        WHERE slug = ?
+                    `, [ch.name, ch.description, ch.slug]);
+                }
+            } catch (e) {
+                console.error(`Error seeding channel ${ch.slug}:`, e.message);
+            }
+        }
+        console.log('✅ Default channels verified.');
         console.log('Database schema updated for large image storage.');
     } catch (e) {
         // Ignore if headers already sent or other non-critical start errors, but log it

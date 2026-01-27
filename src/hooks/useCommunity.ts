@@ -33,6 +33,7 @@ export interface Channel {
   name: string;
   type: string;
   description: string | null;
+  created_by?: string;
 }
 
 export interface TrendingHashtag {

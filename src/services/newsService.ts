@@ -395,7 +395,7 @@ export function formatNewsForPost(article: NewsArticle): {
     const emojis = ['🤖', '🚀', '💡', '⚡', '🔬', '🌟', '🎯', '💻', '🧠', '🔮'];
     const emoji = emojis[Math.floor(Math.random() * emojis.length)];
 
-    const content = `${emoji} **${article.title}**
+    const content = `${emoji} ${article.title}
 
 ${article.description}
 
@@ -409,3 +409,4 @@ ${article.description}
         imageUrl: article.imageUrl
     };
 }
+

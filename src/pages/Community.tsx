@@ -3,7 +3,7 @@ import {
   MessageSquare, Users, TrendingUp, ExternalLink, Hash, Star,
   Image as ImageIcon, Send, Plus, Video, Radio, Newspaper,
   Share2, Heart, MessageCircle, MoreHorizontal, Search, RefreshCw, Loader2,
-  Trash2, Edit2
+  Trash2, Edit2, Flag, Copy, Twitter, Facebook, Linkedin, MoreVertical, Pencil, User, Link
 } from 'lucide-react';
 import { Navbar } from '@/components/Navbar';
 import { Footer } from '@/components/Footer';
@@ -19,6 +19,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
@@ -60,6 +61,13 @@ const Community = () => {
   const [commentingPost, setCommentingPost] = useState<Post | null>(null);
   const [editContent, setEditContent] = useState('');
 
+  // Pagination State
+  const [currentPage, setCurrentPage] = useState(1);
+  const POSTS_PER_PAGE = 8;
+
+  // Category Filter State
+  const [categoryFilter, setCategoryFilter] = useState<'all' | 'ai-news' | 'community' | 'my-posts'>('all');
+
   // Hashtag Autocomplete
   const [hashtagSuggestions, setHashtagSuggestions] = useState<{ name: string; count: number }[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
@@ -69,6 +77,39 @@ const Community = () => {
   const [isCreateChannelOpen, setIsCreateChannelOpen] = useState(false);
   const [newChannelName, setNewChannelName] = useState('');
   const [newChannelType, setNewChannelType] = useState('text');
+
+  // Report State
+  const [reportDialogOpen, setReportDialogOpen] = useState(false);
+  const [reportPostId, setReportPostId] = useState<string | null>(null);
+  const [reportReason, setReportReason] = useState('');
+  const [customReason, setCustomReason] = useState('');
+  const [showCustomReasonInput, setShowCustomReasonInput] = useState(false);
+
+
+  // Share State
+  const [shareDialogOpen, setShareDialogOpen] = useState(false);
+  const [sharePostId, setSharePostId] = useState<string | null>(null);
+  const [shareUrl, setShareUrl] = useState('');
+
+  // Comments State
+  const [activeCommentsPostId, setActiveCommentsPostId] = useState<string | null>(null);
+  const [activeComments, setActiveComments] = useState<any[]>([]);
+  const [commentsLoading, setCommentsLoading] = useState(false);
+  const [commentInput, setCommentInput] = useState('');
+  const [editingCommentId, setEditingCommentId] = useState<string | null>(null);
+  const [editingCommentContent, setEditingCommentContent] = useState('');
+  const [deleteCommentDialogOpen, setDeleteCommentDialogOpen] = useState(false);
+  const [commentToDelete, setCommentToDelete] = useState<string | null>(null);
+
+  // Channel Edit State
+  const [editingChannelId, setEditingChannelId] = useState<string | null>(null);
+  const [editChannelDialogOpen, setEditChannelDialogOpen] = useState(false);
+  const [editChannelName, setEditChannelName] = useState('');
+  const [editChannelDescription, setEditChannelDescription] = useState('');
+
+  // Channel Delete State
+  const [activeDeleteChannelId, setActiveDeleteChannelId] = useState<string | null>(null);
+  const [deleteChannelDialogOpen, setDeleteChannelDialogOpen] = useState(false);
 
   const chatScrollRef = useRef<HTMLDivElement>(null);
   const postInputRef = useRef<HTMLInputElement>(null);
@@ -229,6 +270,371 @@ const Community = () => {
     }
   };
 
+  // Report Handler
+  const handleReport = (postId: string) => {
+    setReportPostId(postId);
+    setReportDialogOpen(true);
+  };
+
+  const submitReport = async (reason: string) => {
+    if (!reportPostId || !user) return;
+
+    // If "other" is selected, show the custom reason input
+    if (reason === 'other') {
+      setReportReason('Other');
+      setShowCustomReasonInput(true);
+      return; // Don't submit yet, wait for custom reason
+    }
+
+    // Map reason codes to user-friendly text
+    const reasonMap: Record<string, string> = {
+      'spam': 'Spam or misleading',
+      'harassment': 'Harassment or hate speech',
+      'inappropriate': 'Inappropriate content'
+    };
+
+    const finalReason = reasonMap[reason] || reason;
+
+    try {
+      const response = await fetch(`${API_URL}/api/community/reports`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('authToken')}`
+        },
+        body: JSON.stringify({
+          post_id: reportPostId,
+          reason: finalReason,
+          custom_reason: null
+        })
+      });
+
+      if (response.ok) {
+        toast({
+          title: "Report Submitted",
+          description: "Thank you for helping keep our community safe.",
+        });
+        setReportDialogOpen(false);
+        setReportPostId(null);
+        setReportReason('');
+        setCustomReason('');
+        setShowCustomReasonInput(false);
+      } else {
+        throw new Error('Failed to submit report');
+      }
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to submit report. Please try again.",
+        variant: "destructive"
+      });
+    }
+  };
+
+  // Submit Custom Report (for "Other" option)
+  const submitCustomReport = async () => {
+    if (!reportPostId || !customReason.trim()) {
+      toast({
+        title: "Additional details required",
+        description: "Please provide more information about your report.",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    try {
+      const response = await fetch(`${API_URL}/api/community/reports`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('authToken')}`
+        },
+        body: JSON.stringify({
+          post_id: reportPostId,
+          reason: 'Other',
+          custom_reason: customReason
+        })
+      });
+
+      if (response.ok) {
+        toast({
+          title: "Report Submitted",
+          description: "Thank you for helping keep our community safe.",
+        });
+        setReportDialogOpen(false);
+        setReportPostId(null);
+        setReportReason('');
+        setCustomReason('');
+        setShowCustomReasonInput(false);
+      } else {
+        throw new Error('Failed to submit report');
+      }
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to submit report. Please try again.",
+        variant: "destructive"
+      });
+    }
+  };
+
+  // Share Dialog Handler
+  const handleShareDialog = (postId: string) => {
+    const url = `${window.location.origin}/community/post/${postId}`;
+    setShareUrl(url);
+    setSharePostId(postId);
+    setShareDialogOpen(true);
+  };
+
+  const shareToSocial = (platform: string) => {
+    const text = "Check out this post from HSM Developer Hub!";
+    let url = '';
+
+    switch (platform) {
+      case 'whatsapp':
+        url = `https://wa.me/?text=${encodeURIComponent(text + ' ' + shareUrl)}`;
+        break;
+      case 'telegram':
+        url = `https://t.me/share/url?url=${encodeURIComponent(shareUrl)}&text=${encodeURIComponent(text)}`;
+        break;
+      case 'twitter':
+        url = `https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}&url=${encodeURIComponent(shareUrl)}`;
+        break;
+      case 'facebook':
+        url = `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(shareUrl)}`;
+        break;
+      case 'linkedin':
+        url = `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(shareUrl)}`;
+        break;
+    }
+
+    if (url) {
+      window.open(url, '_blank', 'width=600,height=400');
+    }
+  };
+
+  const copyShareLink = () => {
+    navigator.clipboard.writeText(shareUrl);
+    toast({
+      title: "Link Copied!",
+      description: "Post link copied to clipboard.",
+    });
+  };
+
+  // Comments Handlers
+  const toggleComments = async (postId: string) => {
+    if (activeCommentsPostId === postId) {
+      setActiveCommentsPostId(null);
+      setActiveComments([]);
+    } else {
+      setActiveCommentsPostId(postId);
+      setCommentsLoading(true);
+      try {
+        const response = await fetch(`${API_URL}/api/community/posts/${postId}/comments`);
+        if (response.ok) {
+          const comments = await response.json();
+          setActiveComments(comments);
+        }
+      } catch (error) {
+        console.error('Failed to load comments:', error);
+      } finally {
+        setCommentsLoading(false);
+      }
+    }
+  };
+
+  const submitComment = async (postId: string) => {
+    if (!commentInput.trim() || !user) return;
+
+    try {
+      const response = await fetch(`${API_URL}/api/community/posts/${postId}/comments`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('authToken')}`
+        },
+        body: JSON.stringify({
+          content: commentInput
+        })
+      });
+
+      if (response.ok) {
+        const newComment = await response.json();
+        setActiveComments([...activeComments, newComment]);
+        setCommentInput('');
+        toast({
+          title: "Comment Posted",
+          description: "Your comment has been added.",
+        });
+      }
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to post comment. Please try again.",
+        variant: "destructive"
+      });
+    }
+  };
+
+  // Edit Comment Handler
+  const startEditComment = (comment: any) => {
+    setEditingCommentId(comment.id);
+    setEditingCommentContent(comment.content);
+  };
+
+  const saveEditComment = async () => {
+    if (!editingCommentId || !editingCommentContent.trim()) return;
+
+    try {
+      const response = await fetch(`${API_URL}/api/community/comments/${editingCommentId}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('authToken')}`
+        },
+        body: JSON.stringify({
+          content: editingCommentContent
+        })
+      });
+
+      if (response.ok) {
+        const updatedComment = await response.json();
+        setActiveComments(activeComments.map(c => c.id === editingCommentId ? updatedComment : c));
+        setEditingCommentId(null);
+        setEditingCommentContent('');
+        toast({
+          title: "Comment Updated",
+          description: "Your comment has been updated.",
+        });
+      }
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to update comment. Please try again.",
+        variant: "destructive"
+      });
+    }
+  };
+
+  const openDeleteCommentDialog = (commentId: string) => {
+    setCommentToDelete(commentId);
+    setDeleteCommentDialogOpen(true);
+  };
+
+  const confirmDeleteComment = async () => {
+    if (!commentToDelete) return;
+
+    try {
+      const response = await fetch(`${API_URL}/api/community/comments/${commentToDelete}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('authToken')}`
+        }
+      });
+
+      if (response.ok) {
+        setActiveComments(activeComments.filter(c => c.id !== commentToDelete));
+        toast({
+          title: "Comment Deleted",
+          description: "Your comment has been deleted.",
+        });
+        setDeleteCommentDialogOpen(false);
+        setCommentToDelete(null);
+      }
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to delete comment. Please try again.",
+        variant: "destructive"
+      });
+    }
+  };
+
+  // Channel Edit/Delete Handlers
+  const openEditChannelDialog = (channel: any) => {
+    setEditingChannelId(channel.id);
+    setEditChannelName(channel.name);
+    setEditChannelDescription(channel.description || '');
+    setEditChannelDialogOpen(true);
+  };
+
+  const handleEditChannel = async () => {
+    if (!editingChannelId || !editChannelName.trim()) return;
+
+    try {
+      const response = await fetch(`${API_URL}/api/community/channels/${editingChannelId}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('authToken')}`
+        },
+        body: JSON.stringify({
+          name: editChannelName,
+          description: editChannelDescription
+        })
+      });
+
+      if (response.ok) {
+        toast({
+          title: "Channel Updated",
+          description: "Channel has been updated successfully.",
+        });
+        setEditChannelDialogOpen(false);
+        setEditingChannelId(null);
+        // Refresh channels
+        window.location.reload();
+      } else {
+        throw new Error('Failed to update channel');
+      }
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to update channel. Please try again.",
+        variant: "destructive"
+      });
+    }
+  };
+
+  const handleDeleteChannel = (channelId: string) => {
+    setActiveDeleteChannelId(channelId);
+    setDeleteChannelDialogOpen(true);
+  };
+
+  const confirmDeleteChannel = async () => {
+    if (!activeDeleteChannelId) return;
+
+    try {
+      const response = await fetch(`${API_URL}/api/community/channels/${activeDeleteChannelId}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('authToken')}`
+        }
+      });
+
+      if (response.ok) {
+        toast({
+          title: "Channel Deleted",
+          description: "Channel has been deleted successfully.",
+        });
+        setDeleteChannelDialogOpen(false);
+        setActiveDeleteChannelId(null);
+        // Redirect to general channel if deleted active one
+        if (activeChannel === activeDeleteChannelId) {
+          setActiveChannel('general');
+        }
+        window.location.reload();
+      } else {
+        throw new Error('Failed to delete channel');
+      }
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to delete channel. Please try again.",
+        variant: "destructive"
+      });
+    }
+  };
+
   // Hashtag Autocomplete Logic
   const handlePostChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const val = e.target.value;
@@ -282,38 +688,107 @@ const Community = () => {
     }, 0);
   };
 
-  // Filter posts by hashtag if selected
-  const displayPosts = selectedHashtag
-    ? posts.filter((post) => {
+  // Filter posts by category and hashtag
+  let displayPosts = posts;
+
+  // Apply category filter
+  if (categoryFilter === 'ai-news') {
+    // Filter for AI News Bot posts or posts in ai-news channel
+    const aiNewsChannel = channels.find(c => c.slug === 'ai-news');
+    displayPosts = displayPosts.filter(post =>
+      post.author_name === '🤖 AI News Bot' ||
+      (aiNewsChannel && post.channel_id === aiNewsChannel.id)
+    );
+  } else if (categoryFilter === 'community') {
+    // Filter out AI News Bot posts
+    displayPosts = displayPosts.filter(post => post.author_name !== '🤖 AI News Bot');
+  } else if (categoryFilter === 'my-posts') {
+    // Filter for user's own posts
+    displayPosts = displayPosts.filter(post => post.author_id === user?.id);
+  }
+  // 'all' shows everything, no additional filter needed
+
+  // Apply hashtag filter if selected
+  if (selectedHashtag) {
+    displayPosts = displayPosts.filter((post) => {
       // Check database tags (case-insensitive)
       const hasDbTag = post.hashtags?.some(t => t.toLowerCase() === selectedHashtag.toLowerCase());
 
       // Fallback: Check content text (for old posts w/o DB link)
-      // Matches #tag followed by end of string or non-word/non-hyphen char
       const regex = new RegExp(`#${selectedHashtag}(?:$|[^\\w-])`, 'i');
       const hasContentTag = regex.test(post.content);
 
       return hasDbTag || hasContentTag;
-    })
-    : posts;
+    });
+  }
 
-  // Extract hashtags from content for display
+  // Pagination calculations
+  const totalPages = Math.ceil(displayPosts.length / POSTS_PER_PAGE);
+  const startIndex = (currentPage - 1) * POSTS_PER_PAGE;
+  const endIndex = startIndex + POSTS_PER_PAGE;
+  const paginatedPosts = displayPosts.slice(startIndex, endIndex);
+
+  // Reset to page 1 when changing channels, hashtags, or category
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [activeChannel, selectedHashtag, categoryFilter]);
+
+  // Extract hashtags, links, and bold text for display
   const renderContentWithHashtags = (content: string) => {
-    const parts = content.split(/(#[\w-]+)/g);
+    if (!content) return null;
+
+    // Split by URLs, Hashtags (#word), and Bold (**text**)
+    // Using capturing groups to include the separators in the result
+    const parts = content.split(/(https?:\/\/[^\s]+)|(#\w+)|(\*\*.*?\*\*)/g);
+
     return parts.map((part, index) => {
+      // Filter out undefined parts from regex capturing groups
+      if (!part) return null;
+
+      // 1. Handle URLs (Linkify)
+      if (part.match(/^https?:\/\//)) {
+        return (
+          <a
+            key={index}
+            href={part}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-blue-400 hover:text-blue-300 hover:underline break-all"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {part}
+          </a>
+        );
+      }
+
+      // 2. Handle Hashtags
       if (part.startsWith('#')) {
         const tag = part.slice(1);
         return (
           <span
             key={index}
             className="text-accent font-semibold cursor-pointer hover:underline"
-            onClick={() => handleHashtagClick(tag)}
+            onClick={(e) => {
+              e.stopPropagation();
+              handleHashtagClick(tag);
+            }}
           >
             {part}
           </span>
         );
       }
-      return part;
+
+      // 3. Handle Bold Text (**text**)
+      if (part.startsWith('**') && part.endsWith('**') && part.length > 4) {
+        return (
+          <strong key={index} className="font-bold text-foreground">
+            {part.slice(2, -2)}
+          </strong>
+        );
+      }
+
+      // 4. Regular Text
+      return <span key={index}>{part}</span>;
     });
   };
 
@@ -404,7 +879,7 @@ const Community = () => {
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 h-full">
 
           {/* Left Sidebar: Channels & Navigation */}
-          <div className="lg:col-span-3 space-y-6">
+          <div className="lg:col-span-3 space-y-6 lg:sticky lg:top-24 lg:self-start lg:max-h-[calc(100vh-7rem)] lg:overflow-y-auto">
             <Card className="glass border-border/50 h-fit">
               <CardHeader className="pb-3">
                 <div className="flex items-center justify-between">
@@ -433,21 +908,78 @@ const Community = () => {
                       </DialogFooter>
                     </DialogContent>
                   </Dialog>
+
+                  {/* Edit Channel Dialog */}
+                  <Dialog open={editChannelDialogOpen} onOpenChange={setEditChannelDialogOpen}>
+                    <DialogContent>
+                      <DialogHeader>
+                        <DialogTitle>Edit Channel</DialogTitle>
+                      </DialogHeader>
+                      <div className="space-y-4 py-4">
+                        <div>
+                          <Label>Channel Name</Label>
+                          <Input
+                            value={editChannelName}
+                            onChange={(e) => setEditChannelName(e.target.value)}
+                            placeholder="e.g. react-discussions"
+                            className="mt-2"
+                          />
+                        </div>
+                        <div>
+                          <Label>Description (Optional)</Label>
+                          <Textarea
+                            value={editChannelDescription}
+                            onChange={(e) => setEditChannelDescription(e.target.value)}
+                            placeholder="Channel description..."
+                            className="mt-2"
+                          />
+                        </div>
+                      </div>
+                      <DialogFooter>
+                        <Button variant="outline" onClick={() => setEditChannelDialogOpen(false)}>Cancel</Button>
+                        <Button onClick={handleEditChannel}>Save Changes</Button>
+                      </DialogFooter>
+                    </DialogContent>
+                  </Dialog>
                 </div>
               </CardHeader>
               <CardContent className="space-y-1">
                 {channels.map(channel => (
-                  <Button
-                    key={channel.id}
-                    variant={activeChannel === channel.id ? "secondary" : "ghost"}
-                    className="w-full justify-start gap-2"
-                    onClick={() => setActiveChannel(channel.id)}
-                  >
-                    {channel.type === 'news' ? <Newspaper className="h-4 w-4" /> :
-                      channel.type === 'media' ? <ImageIcon className="h-4 w-4" /> :
-                        <Hash className="h-4 w-4" />}
-                    {channel.name}
-                  </Button>
+                  <div key={channel.id} className="flex items-center gap-1">
+                    <Button
+                      variant={activeChannel === channel.id ? "secondary" : "ghost"}
+                      className="flex-1 justify-start gap-2"
+                      onClick={() => setActiveChannel(channel.id)}
+                    >
+                      {channel.type === 'news' ? <Newspaper className="h-4 w-4" /> :
+                        channel.type === 'media' ? <ImageIcon className="h-4 w-4" /> :
+                          <Hash className="h-4 w-4" />}
+                      {channel.name}
+                    </Button>
+                    {channel.created_by === user?.id && (
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" size="icon" className="h-8 w-8">
+                            <MoreVertical className="h-4 w-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuItem onClick={() => openEditChannelDialog(channel)}>
+                            <Edit2 className="h-4 w-4 mr-2" />
+                            Edit Channel
+                          </DropdownMenuItem>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem
+                            onClick={() => handleDeleteChannel(channel.id)}
+                            className="text-destructive"
+                          >
+                            <Trash2 className="h-4 w-4 mr-2" />
+                            Delete Channel
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    )}
+                  </div>
                 ))}
               </CardContent>
             </Card>
@@ -515,6 +1047,47 @@ const Community = () => {
                   </Button>
                 )}
               </div>
+            </div>
+
+            {/* Category Filter Tabs */}
+            <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
+              <Button
+                variant={categoryFilter === 'all' ? 'default' : 'outline'}
+                size="sm"
+                className="gap-2 whitespace-nowrap"
+                onClick={() => setCategoryFilter('all')}
+              >
+                <Hash className="h-4 w-4" />
+                All
+              </Button>
+              <Button
+                variant={categoryFilter === 'ai-news' ? 'default' : 'outline'}
+                size="sm"
+                className="gap-2 whitespace-nowrap"
+                onClick={() => setCategoryFilter('ai-news')}
+              >
+                <Newspaper className="h-4 w-4" />
+                AI News
+              </Button>
+              <Button
+                variant={categoryFilter === 'community' ? 'default' : 'outline'}
+                size="sm"
+                className="gap-2 whitespace-nowrap"
+                onClick={() => setCategoryFilter('community')}
+              >
+                <Users className="h-4 w-4" />
+                Community
+              </Button>
+              <Button
+                variant={categoryFilter === 'my-posts' ? 'default' : 'outline'}
+                size="sm"
+                className="gap-2 whitespace-nowrap"
+                onClick={() => setCategoryFilter('my-posts')}
+                disabled={!user}
+              >
+                <Star className="h-4 w-4" />
+                My Posts
+              </Button>
             </div>
 
             {/* Create Post Widget */}
@@ -613,7 +1186,7 @@ const Community = () => {
 
             {/* Feed */}
             <div className="space-y-4">
-              {displayPosts.map((post) => (
+              {paginatedPosts.map((post) => (
                 <Card key={post.id} className="glass border-border/50 hover:bg-muted/10 transition-colors">
                   <CardHeader className="flex flex-row items-start gap-4 pb-2">
                     <div
@@ -651,9 +1224,18 @@ const Community = () => {
                             </DropdownMenuContent>
                           </DropdownMenu>
                         ) : (
-                          <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground">
-                            <MoreHorizontal className="h-4 w-4" />
-                          </Button>
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground">
+                                <MoreHorizontal className="h-4 w-4" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                              <DropdownMenuItem onClick={() => handleReport(post.id)}>
+                                <Flag className="mr-2 h-4 w-4" /> Report
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
                         )}
                       </div>
                     </div>
@@ -681,8 +1263,8 @@ const Community = () => {
                       <Button
                         variant="ghost"
                         size="sm"
-                        className="gap-2 hover:text-blue-500"
-                        onClick={() => handleCommentClick(post)}
+                        className={`gap-2 ${activeCommentsPostId === post.id ? 'text-blue-500' : 'hover:text-blue-500'}`}
+                        onClick={() => toggleComments(post.id)}
                       >
                         <MessageCircle className="h-4 w-4" /> {post.comments_count}
                       </Button>
@@ -690,12 +1272,122 @@ const Community = () => {
                         variant="ghost"
                         size="sm"
                         className="gap-2 hover:text-green-500"
-                        onClick={() => handleShare(post.id)}
+                        onClick={() => handleShareDialog(post.id)}
                       >
                         <Share2 className="h-4 w-4" /> Share
                       </Button>
                     </div>
                   </CardFooter>
+
+                  {/* Comments Section */}
+                  {activeCommentsPostId === post.id && (
+                    <div className="border-t border-border/50 px-6 py-4 space-y-4">
+                      {commentsLoading ? (
+                        <div className="text-center text-muted-foreground">Loading comments...</div>
+                      ) : (
+                        <>
+                          {activeComments.length > 0 ? (
+                            <div className="space-y-3">
+                              {activeComments.map((comment: any) => (
+                                <div key={comment.id} className="flex gap-3">
+                                  <Avatar className="h-8 w-8">
+                                    <AvatarImage src={comment.user_avatar} />
+                                    <AvatarFallback>{comment.user_name?.[0] || 'U'}</AvatarFallback>
+                                  </Avatar>
+                                  <div className="flex-1">
+                                    {editingCommentId === comment.id ? (
+                                      <div className="space-y-2">
+                                        <Textarea
+                                          value={editingCommentContent}
+                                          onChange={(e) => setEditingCommentContent(e.target.value)}
+                                          className="min-h-[60px]"
+                                        />
+                                        <div className="flex gap-2">
+                                          <Button size="sm" onClick={saveEditComment}>Save</Button>
+                                          <Button size="sm" variant="outline" onClick={() => {
+                                            setEditingCommentId(null);
+                                            setEditingCommentContent('');
+                                          }}>Cancel</Button>
+                                        </div>
+                                      </div>
+                                    ) : (
+                                      <>
+                                        <div className="bg-muted rounded-lg px-3 py-2">
+                                          <div className="flex items-start justify-between">
+                                            <p className="font-semibold text-sm">{comment.user_name || 'Anonymous'}</p>
+                                            {comment.user_id === user?.id && (
+                                              <DropdownMenu>
+                                                <DropdownMenuTrigger asChild>
+                                                  <Button variant="ghost" size="icon" className="h-6 w-6 -mt-1">
+                                                    <MoreHorizontal className="h-3 w-3" />
+                                                  </Button>
+                                                </DropdownMenuTrigger>
+                                                <DropdownMenuContent align="end">
+                                                  <DropdownMenuItem onClick={() => startEditComment(comment)}>
+                                                    <Edit2 className="h-4 w-4 mr-2" />Edit
+                                                  </DropdownMenuItem>
+                                                  <DropdownMenuSeparator />
+                                                  <DropdownMenuItem onClick={() => openDeleteCommentDialog(comment.id)} className="text-destructive">
+                                                    <Trash2 className="h-4 w-4 mr-2" />Delete
+                                                  </DropdownMenuItem>
+                                                </DropdownMenuContent>
+                                              </DropdownMenu>
+                                            )}
+                                          </div>
+                                          <p className="text-sm">{comment.content}</p>
+                                        </div>
+                                        <p className="text-xs text-muted-foreground mt-1 ml-3">
+                                          {formatDistanceToNow(new Date(comment.created_at), { addSuffix: true })}
+                                        </p>
+                                      </>
+                                    )}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            <p className="text-center text-muted-foreground text-sm">No comments yet. Be the first!</p>
+                          )}
+
+                          {user ? (
+                            <div className="flex gap-2 pt-2">
+                              <Input
+                                placeholder="Write a comment..."
+                                value={commentInput}
+                                onChange={(e) => setCommentInput(e.target.value)}
+                                onKeyPress={(e) => {
+                                  if (e.key === 'Enter' && !e.shiftKey) {
+                                    e.preventDefault();
+                                    submitComment(post.id);
+                                  }
+                                }}
+                              />
+                              <Button
+                                size="sm"
+                                onClick={() => submitComment(post.id)}
+                                disabled={!commentInput.trim()}
+                              >
+                                <Send className="h-4 w-4" />
+                              </Button>
+                            </div>
+                          ) : (
+                            <div className="text-center pt-2 pb-1">
+                              <p className="text-sm text-muted-foreground">
+                                <Button
+                                  variant="link"
+                                  className="p-0 h-auto font-normal text-accent hover:text-accent/80"
+                                  onClick={() => navigate('/auth')}
+                                >
+                                  Sign in
+                                </Button>
+                                {' '}to comment
+                              </p>
+                            </div>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  )}
                 </Card>
               ))}
 
@@ -704,12 +1396,49 @@ const Community = () => {
                   <p>No posts yet in this channel. Be the first to share something!</p>
                 </div>
               )}
+
+              {/* Pagination Controls */}
+              {totalPages > 1 && (
+                <div className="flex items-center justify-center gap-2 pt-6">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                    disabled={currentPage === 1}
+                  >
+                    Previous
+                  </Button>
+
+                  <div className="flex gap-1">
+                    {Array.from({ length: totalPages }, (_, i) => i + 1).map(page => (
+                      <Button
+                        key={page}
+                        variant={currentPage === page ? "default" : "outline"}
+                        size="sm"
+                        className="w-10"
+                        onClick={() => setCurrentPage(page)}
+                      >
+                        {page}
+                      </Button>
+                    ))}
+                  </div>
+
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+                    disabled={currentPage === totalPages}
+                  >
+                    Next
+                  </Button>
+                </div>
+              )}
             </div>
 
           </div>
 
           {/* Right Sidebar: Chat & Trending */}
-          <div className="lg:col-span-3 space-y-6">
+          <div className="lg:col-span-3 space-y-6 lg:sticky lg:top-24 lg:self-start lg:max-h-[calc(100vh-7rem)] lg:overflow-y-auto">
 
             {/* Live Chat */}
             <Card className="glass border-border/50 flex flex-col h-[500px]">
@@ -821,12 +1550,261 @@ const Community = () => {
         </AlertDialogContent>
       </AlertDialog>
 
+      {/* Delete Channel Alert */}
+      <AlertDialog open={deleteChannelDialogOpen} onOpenChange={setDeleteChannelDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Are you sure?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This action cannot be undone. This will permanently delete this channel.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmDeleteChannel} className="bg-red-500 hover:bg-red-600">Delete</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Delete Comment Alert */}
+      <AlertDialog open={deleteCommentDialogOpen} onOpenChange={setDeleteCommentDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Are you sure?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This action cannot be undone. This will permanently delete your comment.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmDeleteComment} className="bg-red-500 hover:bg-red-600">Delete</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Report Dialog */}
+      <Dialog open={reportDialogOpen} onOpenChange={(open) => {
+        setReportDialogOpen(open);
+        if (!open) {
+          setShowCustomReasonInput(false);
+          setCustomReason('');
+          setReportReason('');
+        }
+      }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Report Post</DialogTitle>
+            <DialogDescription>
+              Help us understand what's wrong with this post.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            {!showCustomReasonInput ? (
+              <div className="space-y-2">
+                <Button
+                  variant="outline"
+                  className="w-full justify-start"
+                  onClick={() => submitReport('spam')}
+                >
+                  <Flag className="mr-2 h-4 w-4" />
+                  Spam or misleading
+                </Button>
+                <Button
+                  variant="outline"
+                  className="w-full justify-start"
+                  onClick={() => submitReport('harassment')}
+                >
+                  <Flag className="mr-2 h-4 w-4" />
+                  Harassment or hate speech
+                </Button>
+                <Button
+                  variant="outline"
+                  className="w-full justify-start"
+                  onClick={() => submitReport('inappropriate')}
+                >
+                  <Flag className="mr-2 h-4 w-4" />
+                  Inappropriate content
+                </Button>
+                <Button
+                  variant="outline"
+                  className="w-full justify-start"
+                  onClick={() => submitReport('other')}
+                >
+                  <Flag className="mr-2 h-4 w-4" />
+                  Other
+                </Button>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <div>
+                  <Label htmlFor="custom-reason" className="text-sm font-medium">
+                    Please provide more details *
+                  </Label>
+                  <Textarea
+                    id="custom-reason"
+                    value={customReason}
+                    onChange={(e) => setCustomReason(e.target.value)}
+                    placeholder="Describe the issue with this post..."
+                    className="min-h-[120px] mt-2"
+                    autoFocus
+                  />
+                  <p className="text-xs text-muted-foreground mt-2">
+                    Please explain why you're reporting this post so our team can review it properly.
+                  </p>
+                </div>
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            {showCustomReasonInput && (
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setShowCustomReasonInput(false);
+                  setCustomReason('');
+                  setReportReason('');
+                }}
+              >
+                Back
+              </Button>
+            )}
+            <Button
+              variant="outline"
+              onClick={() => {
+                setReportDialogOpen(false);
+                setShowCustomReasonInput(false);
+                setCustomReason('');
+                setReportReason('');
+              }}
+            >
+              Cancel
+            </Button>
+            {showCustomReasonInput && (
+              <Button
+                onClick={submitCustomReport}
+                disabled={!customReason.trim()}
+                className="bg-destructive hover:bg-destructive/90"
+              >
+                <Flag className="mr-2 h-4 w-4" />
+                Submit Report
+              </Button>
+            )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Share Dialog */}
+      <Dialog open={shareDialogOpen} onOpenChange={setShareDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Share Post</DialogTitle>
+            <DialogDescription>
+              Share this post with your network
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="grid grid-cols-2 gap-3">
+              <Button
+                variant="outline"
+                className="w-full justify-start gap-2"
+                onClick={() => shareToSocial('whatsapp')}
+              >
+                <MessageCircle className="h-4 w-4 text-green-500" />
+                WhatsApp
+              </Button>
+              <Button
+                variant="outline"
+                className="w-full justify-start gap-2"
+                onClick={() => shareToSocial('telegram')}
+              >
+                <Send className="h-4 w-4 text-blue-400" />
+                Telegram
+              </Button>
+              <Button
+                variant="outline"
+                className="w-full justify-start gap-2"
+                onClick={() => shareToSocial('twitter')}
+              >
+                <Share2 className="h-4 w-4 text-blue-500" />
+                Twitter
+              </Button>
+              <Button
+                variant="outline"
+                className="w-full justify-start gap-2"
+                onClick={() => shareToSocial('facebook')}
+              >
+                <Share2 className="h-4 w-4 text-blue-600" />
+                Facebook
+              </Button>
+              <Button
+                variant="outline"
+                className="w-full justify-start gap-2"
+                onClick={() => shareToSocial('linkedin')}
+              >
+                <Share2 className="h-4 w-4 text-blue-700" />
+                LinkedIn
+              </Button>
+              <Button
+                variant="outline"
+                className="w-full justify-start gap-2"
+                onClick={copyShareLink}
+              >
+                <Link className="h-4 w-4" />
+                Copy Link
+              </Button>
+            </div>
+            <div className="pt-2">
+              <Input
+                value={shareUrl}
+                readOnly
+                className="text-sm"
+                onClick={(e) => e.currentTarget.select()}
+              />
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       {/* Comment Dialog */}
       <CommentsDialog
         open={!!commentingPost}
         onOpenChange={(open) => !open && setCommentingPost(null)}
         post={commentingPost}
       />
+
+      {/* Delete Comment Confirmation Dialog */}
+      <AlertDialog open={deleteCommentDialogOpen} onOpenChange={setDeleteCommentDialogOpen}>
+        <AlertDialogContent className="glass border-border/50">
+          <AlertDialogHeader>
+            <div className="flex items-center gap-3 mb-2">
+              <div className="h-12 w-12 rounded-full bg-destructive/10 flex items-center justify-center">
+                <Trash2 className="h-6 w-6 text-destructive" />
+              </div>
+              <div>
+                <AlertDialogTitle className="text-xl">Delete Comment</AlertDialogTitle>
+                <AlertDialogDescription className="text-muted-foreground mt-1">
+                  This action cannot be undone
+                </AlertDialogDescription>
+              </div>
+            </div>
+          </AlertDialogHeader>
+          <div className="py-4">
+            <p className="text-sm text-muted-foreground">
+              Are you sure you want to delete this comment? This will permanently remove your comment from the conversation.
+            </p>
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel className="hover:bg-muted">Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={confirmDeleteComment}
+              className="bg-destructive hover:bg-destructive/90 text-destructive-foreground"
+            >
+              <Trash2 className="h-4 w-4 mr-2" />
+              Delete Comment
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <Footer />
     </div>
