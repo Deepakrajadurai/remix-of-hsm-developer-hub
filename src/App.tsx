@@ -12,6 +12,8 @@ import Resources from "./pages/Resources";
 import Community from "./pages/Community";
 import Blog from "./pages/Blog";
 import BlogNew from "./pages/BlogNew";
+import BlogPost from "./pages/BlogPost";
+import BlogEdit from "./pages/BlogEdit";
 import Profile from "./pages/Profile";
 import Settings from "./pages/Settings";
 import Legal from "./pages/Legal";
@@ -37,6 +39,8 @@ const App = () => (
               <Route path="/community" element={<Community />} />
               <Route path="/blog" element={<Blog />} />
               <Route path="/blog/new" element={<BlogNew />} />
+              <Route path="/blog/:id" element={<BlogPost />} />
+              <Route path="/blog/:id/edit" element={<BlogEdit />} />
               <Route path="/profile" element={<Profile />} />
               <Route path="/settings" element={<Settings />} />
               <Route path="/privacy" element={<Legal />} />

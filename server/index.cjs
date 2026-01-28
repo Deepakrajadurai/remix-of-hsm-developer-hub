@@ -1447,12 +1447,295 @@ app.get('/api/community/hashtags', async (req, res) => {
     }
 });
 
+// --- BLOG ROUTES ---
+
+// 1. GET ALL BLOGS
+// 1. GET ALL PUBLIC BLOGS
+// 1. GET ALL PUBLIC BLOGS
+app.get('/api/blogs', async (req, res) => {
+    try {
+        const query = `
+            SELECT 
+                b.id,
+                b.author_id,
+                b.title,
+                b.content,
+                b.cover_image_url,
+                b.loop_video_url,
+                b.published,
+                b.created_at,
+                b.updated_at,
+                u.email AS author_email,
+                COALESCE(pr.full_name, 'Anonymous') AS author_name,
+                pr.avatar_url AS author_avatar
+            FROM blogs b
+            LEFT JOIN users u ON b.author_id = u.id
+            LEFT JOIN profiles pr ON u.id = pr.user_id
+            WHERE b.published = TRUE
+            ORDER BY b.created_at DESC
+        `;
+
+        const [blogs] = await pool.query(query);
+        res.json(blogs);
+    } catch (err) {
+        console.error("Get Blogs Error:", err);
+        res.status(500).json({ error: 'Server error fetching blogs' });
+    }
+});
+
+// 1.1 GET MY POSTS (Drafts & Published)
+app.get('/api/blogs/my-posts', verifyToken, async (req, res) => {
+    try {
+        const query = `
+            SELECT b.*,
+            u.email as author_email,
+            COALESCE(pr.full_name, 'Anonymous') as author_name,
+            pr.avatar_url as author_avatar
+            FROM blogs b
+            LEFT JOIN users u ON b.author_id = u.id
+            LEFT JOIN profiles pr ON u.id = pr.user_id
+            WHERE b.author_id = ?
+            ORDER BY b.created_at DESC
+                `;
+        const [blogs] = await pool.query(query, [req.userId]);
+        res.json(blogs);
+    } catch (err) {
+        console.error("Get My Blogs Error:", err);
+        res.status(500).json({ error: 'Server error fetching your blogs' });
+    }
+});
+
+// 2. GET SINGLE BLOG
+app.get('/api/blogs/:id', async (req, res) => {
+    // Note: verifyToken is optional here usually, but if we want to determine "owner",
+    // we need to know who is asking. 
+    // However, verifyToken middleware enforces auth. 
+    // If public access is needed, we should make verifyToken optional. 
+    // For now, let's keep it generally accessible but check header manually if needed?
+    // Actually, checking req.userId requires verifyToken.
+    // Let's make a public endpoint but use a custom check for token if present.
+    // SIMPLIFICATION: We will keep it optional-ish or just assume public view logic unless specific edit route called.
+    // BUT user needs to read it.
+    // Let's stick to: Public sees Published Version. Owner sees Draft Version (or both).
+    // The current route structure renders this logic complex.
+    // Better approach: 
+    // If I am the owner, I want to edit -> I fetch ONLY Draft.
+    // If I am a reader, I fetch ONLY Published.
+    // For now, let's just return ALL data if owner, otherwise Alias published->title.
+
+    // Changing to allow public access logic inside:
+    // We can't easily make verifyToken optional without rewriting it.
+    // For now, let's just fetch the blog and filter fields based on logic below.
+
+    // Oh wait, the previous implementation didn't have verifyToken on GET /:id.
+    const { id } = req.params;
+
+    // Hack: Parse token manually to see if user is owner
+    let userId = null;
+    if (req.headers.authorization && req.headers.authorization.startsWith('Bearer ')) {
+        const token = req.headers.authorization.split(' ')[1];
+        try {
+            const decoded = jwt.verify(token, process.env.JWT_SECRET || 'fallback_secret');
+            userId = decoded.id; // Fixed: JWT uses 'id' not 'userId'
+        } catch (e) { }
+    }
+
+    try {
+        const query = `
+            SELECT b.*,
+            u.email as author_email,
+            COALESCE(pr.full_name, 'Anonymous') as author_name,
+            pr.avatar_url as author_avatar
+            FROM blogs b
+            LEFT JOIN users u ON b.author_id = u.id
+            LEFT JOIN profiles pr ON u.id = pr.user_id
+            WHERE b.id = ?
+            `;
+        const [blogs] = await pool.query(query, [id]);
+
+        if (blogs.length === 0) {
+            return res.status(404).json({ error: 'Blog not found' });
+        }
+
+        const blog = blogs[0];
+        const isOwner = userId && blog.author_id === userId;
+
+        if (isOwner) {
+            // Owner can see everything (draft or published)
+            res.json(blog);
+        } else {
+            // Public Viewer: Only see published blogs
+            if (!blog.published) {
+                return res.status(404).json({ error: 'Blog not found' });
+            }
+            res.json(blog);
+        }
+
+    } catch (err) {
+        console.error("Get Blog Error:", err);
+        res.status(500).json({ error: 'Server error fetching blog' });
+    }
+});
+
+// 3. CREATE BLOG (Protected)
+app.post('/api/blogs', verifyToken, async (req, res) => {
+    const { title, content, cover_image_url, loop_video_url, published } = req.body; // published here means "Publish Now" toggle
+
+    if (!title || !content) {
+        return res.status(400).json({ error: 'Title and content are required' });
+    }
+
+    try {
+        const id = uuidv4();
+
+        // If published=true, we sync the published_ columns.
+        // If false, we set them to null? No, for a NEW post, they are null if draft.
+        // If published=true, we set boolean=true.
+
+        const is_pub = !!published;
+
+        await pool.execute(
+            `INSERT INTO blogs
+            (id, author_id, title, content, cover_image_url, loop_video_url, published,
+                created_at, updated_at)
+        VALUES(?, ?, ?, ?, ?, ?, ?, NOW(), NOW())`,
+            [id, req.userId, title, content, cover_image_url || null, loop_video_url || null, is_pub]
+        );
+
+        const [newBlog] = await pool.query('SELECT * FROM blogs WHERE id = ?', [id]);
+        res.json(newBlog[0]);
+    } catch (err) {
+        console.error("Create Blog Error:", err);
+        res.status(500).json({ error: 'Server error creating blog' });
+    }
+});
+
+// 4. UPDATE BLOG (Protected)
+app.put('/api/blogs/:id', verifyToken, async (req, res) => {
+    const { id } = req.params;
+    const { title, content, cover_image_url, loop_video_url, published } = req.body;
+
+    try {
+        // Check ownership
+        const [blogs] = await pool.execute('SELECT author_id, published FROM blogs WHERE id = ?', [id]);
+        if (blogs.length === 0) return res.status(404).json({ error: 'Blog not found' });
+
+        if (blogs[0].author_id !== req.userId) {
+            return res.status(403).json({ error: 'Unauthorized to edit this blog' });
+        }
+
+        let query = '';
+        let params = [];
+
+        if (published) {
+            // User clicked "Publish": Update content and set Published=True.
+            query = `UPDATE blogs SET
+        title = ?, content = ?, cover_image_url = ?, loop_video_url = ?,
+            published = TRUE,
+            updated_at = NOW() 
+                     WHERE id = ? `;
+            params = [
+                title, content, cover_image_url || null, loop_video_url || null,
+                id
+            ];
+        } else {
+            // User clicked "Save Draft": Update Draft only. Leave Published cols alone. Leave Published Boolean alone?
+            // User requirement: "Saved as draft and only when clicked on publish it should be updated"
+            // This implies the boolean state might stay TRUE (Live site exists) but we don't update it.
+            // OR if it was never published, it stays FALSE.
+            // So we DO NOT change the 'published' boolean here, unless we want to force Unpublish?
+            // Assuming "Save Draft" just means "Save my work", not "Unpublish".
+
+            query = `UPDATE blogs SET
+        title = ?, content = ?, cover_image_url = ?, loop_video_url = ?,
+            updated_at = NOW() 
+                     WHERE id = ? `;
+            params = [
+                title, content, cover_image_url || null, loop_video_url || null,
+                id
+            ];
+        }
+
+        await pool.execute(query, params);
+
+        const [updatedBlog] = await pool.query('SELECT * FROM blogs WHERE id = ?', [id]);
+        res.json(updatedBlog[0]);
+    } catch (err) {
+        console.error("Update Blog Error:", err);
+        res.status(500).json({ error: 'Server error updating blog' });
+    }
+});
+
+// 5. DELETE BLOG (Protected)
+app.delete('/api/blogs/:id', verifyToken, async (req, res) => {
+    const { id } = req.params;
+
+    try {
+        // Check ownership
+        const [blogs] = await pool.execute('SELECT author_id FROM blogs WHERE id = ?', [id]);
+        if (blogs.length === 0) return res.status(404).json({ error: 'Blog not found' });
+
+        if (blogs[0].author_id !== req.userId) {
+            return res.status(403).json({ error: 'Unauthorized to delete this blog' });
+        }
+
+        await pool.execute('DELETE FROM blogs WHERE id = ?', [id]);
+        res.json({ message: 'Blog deleted successfully' });
+    } catch (err) {
+        console.error("Delete Blog Error:", err);
+        res.status(500).json({ error: 'Server error deleting blog' });
+    }
+});
+
 app.listen(PORT, async () => {
-    console.log(`Server running on ${process.env.SERVER_URL || `port ${PORT}`}`);
+    console.log(`Server running on ${process.env.SERVER_URL || `port ${PORT}`} `);
 
     // Schema Migration for Base64 Support
     try {
         console.log('--- Checking Database Schema ---');
+
+        // Ensure Blogs Table
+        try {
+            await pool.query(`
+                CREATE TABLE IF NOT EXISTS blogs(
+                id VARCHAR(36) PRIMARY KEY,
+                author_id VARCHAR(36) NOT NULL,
+                title VARCHAR(255) NOT NULL,
+                content LONGTEXT NOT NULL,
+                cover_image_url LONGTEXT,
+                loop_video_url LONGTEXT,
+                published BOOLEAN DEFAULT TRUE,
+                created_at DATETIME DEFAULT NOW(),
+                updated_at DATETIME DEFAULT NOW(),
+                FOREIGN KEY(author_id) REFERENCES users(id) ON DELETE CASCADE
+            )
+            `);
+            console.log('Verified blogs table.');
+        } catch (e) {
+            console.error('Error ensuring blogs table:', e);
+        }
+
+        // Add published column if missing
+        try {
+            await pool.query("ALTER TABLE blogs ADD COLUMN published BOOLEAN DEFAULT TRUE");
+            await pool.query("ALTER TABLE blogs ADD COLUMN published_title VARCHAR(255)");
+            await pool.query("ALTER TABLE blogs ADD COLUMN published_content LONGTEXT");
+            await pool.query("ALTER TABLE blogs ADD COLUMN published_cover_image_url LONGTEXT");
+
+            // Backfill existing published posts
+            await pool.query(`
+                UPDATE blogs 
+                SET published_title = title,
+            published_content = content,
+            published_cover_image_url = cover_image_url 
+                WHERE published = TRUE AND published_title IS NULL
+            `);
+
+            console.log('Verified published_Version columns.');
+        } catch (e) {
+            // Ignore
+        }
+
         // Ensure image_url columns are large enough for Base64 (MEDIUMTEXT ~16MB)
         await pool.query("ALTER TABLE posts MODIFY image_url LONGTEXT");
         await pool.query("ALTER TABLE profiles MODIFY avatar_url LONGTEXT");
@@ -1460,7 +1743,7 @@ app.listen(PORT, async () => {
 
         // Ensure Channels Table
         await pool.query(`
-            CREATE TABLE IF NOT EXISTS channels (
+            CREATE TABLE IF NOT EXISTS channels(
                 id VARCHAR(36) PRIMARY KEY,
                 slug VARCHAR(255) UNIQUE NOT NULL,
                 name VARCHAR(255) NOT NULL,
@@ -1504,7 +1787,7 @@ app.listen(PORT, async () => {
 
         for (const col of profileCols) {
             try {
-                await pool.query(`ALTER TABLE profiles ADD COLUMN ${col.name} ${col.type}`);
+                await pool.query(`ALTER TABLE profiles ADD COLUMN ${col.name} ${col.type} `);
                 console.log(`Added ${col.name} column to profiles.`);
             } catch (e) {
                 // Ignore if column exists
@@ -1527,8 +1810,8 @@ app.listen(PORT, async () => {
                     // Create new channel with UUID
                     const channelId = uuidv4();
                     await pool.query(`
-                        INSERT INTO channels (id, slug, name, description, created_at, updated_at)
-                        VALUES (?, ?, ?, ?, NOW(), NOW())
+                        INSERT INTO channels(id, slug, name, description, created_at, updated_at)
+        VALUES(?, ?, ?, ?, NOW(), NOW())
                     `, [channelId, ch.slug, ch.name, ch.description]);
                     console.log(`✅ Created channel: ${ch.name} (${channelId})`);
                 } else {
@@ -1537,10 +1820,10 @@ app.listen(PORT, async () => {
                         UPDATE channels 
                         SET name = ?, description = ?, updated_at = NOW()
                         WHERE slug = ?
-                    `, [ch.name, ch.description, ch.slug]);
+    `, [ch.name, ch.description, ch.slug]);
                 }
             } catch (e) {
-                console.error(`Error seeding channel ${ch.slug}:`, e.message);
+                console.error(`Error seeding channel ${ch.slug}: `, e.message);
             }
         }
         console.log('✅ Default channels verified.');
