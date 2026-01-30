@@ -1842,8 +1842,102 @@ app.listen(PORT, async () => {
         }
         console.log('✅ Default channels verified.');
         console.log('Database schema updated for large image storage.');
+
+        // --- ADMIN USER INITIALIZATION ---
+        console.log('\n--- Initializing Admin User ---');
+        await initializeAdminUser();
+
     } catch (e) {
         // Ignore if headers already sent or other non-critical start errors, but log it
         console.log('Schema update note (safe to ignore if columns exist):', e.message);
     }
 });
+
+// Helper function to initialize admin user from .env
+async function initializeAdminUser() {
+    if (!process.env.ADMIN_EMAIL || !process.env.ADMIN_PASSWORD) {
+        console.log('⚠️  ADMIN_EMAIL or ADMIN_PASSWORD not set in .env - skipping admin initialization');
+        return;
+    }
+
+    const adminEmail = process.env.ADMIN_EMAIL;
+    const adminPassword = process.env.ADMIN_PASSWORD;
+
+    const connection = await pool.getConnection();
+    try {
+        await connection.beginTransaction();
+
+        // Check if admin user already exists
+        const [existingUsers] = await connection.execute(
+            'SELECT id, email FROM users WHERE email = ?',
+            [adminEmail]
+        );
+
+        if (existingUsers.length > 0) {
+            const userId = existingUsers[0].id;
+
+            // Check if user has admin role
+            const [existingRoles] = await connection.execute(
+                'SELECT role FROM user_roles WHERE user_id = ? AND role = ?',
+                [userId, 'admin']
+            );
+
+            if (existingRoles.length === 0) {
+                // Add admin role
+                await connection.execute(
+                    'INSERT INTO user_roles (id, user_id, role, created_at) VALUES (?, ?, ?, NOW())',
+                    [uuidv4(), userId, 'admin']
+                );
+                console.log(`✅ Admin role added to existing user: ${adminEmail}`);
+            } else {
+                console.log(`✅ Admin user already exists: ${adminEmail}`);
+            }
+
+            await connection.commit();
+            return;
+        }
+
+        // Create new admin user
+        console.log(`👤 Creating admin user: ${adminEmail}`);
+
+        const salt = await bcrypt.genSalt(10);
+        const passwordHash = await bcrypt.hash(adminPassword, salt);
+        const userId = uuidv4();
+
+        // Insert into users table
+        await connection.execute(
+            'INSERT INTO users (id, email, password_hash, is_verified, created_at, updated_at) VALUES (?, ?, ?, 1, NOW(), NOW())',
+            [userId, adminEmail, passwordHash]
+        );
+
+        // Insert into profiles table
+        await connection.execute(
+            'INSERT INTO profiles (id, user_id, full_name, bio, created_at, updated_at) VALUES (?, ?, ?, ?, NOW(), NOW())',
+            [uuidv4(), userId, 'System Administrator', 'Default administrator account']
+        );
+
+        // Insert admin role
+        await connection.execute(
+            'INSERT INTO user_roles (id, user_id, role, created_at) VALUES (?, ?, ?, NOW())',
+            [uuidv4(), userId, 'admin']
+        );
+
+        // Also add default 'user' role
+        await connection.execute(
+            'INSERT INTO user_roles (id, user_id, role, created_at) VALUES (?, ?, ?, NOW())',
+            [uuidv4(), userId, 'user']
+        );
+
+        await connection.commit();
+
+        console.log('✅ Admin user created successfully!');
+        console.log(`   📧 Email: ${adminEmail}`);
+        console.log(`   👑 Roles: admin, user`);
+
+    } catch (error) {
+        await connection.rollback();
+        console.error('❌ Error initializing admin user:', error.message);
+    } finally {
+        connection.release();
+    }
+}
