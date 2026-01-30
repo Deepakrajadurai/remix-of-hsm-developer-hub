@@ -1561,14 +1561,21 @@ app.get('/api/blogs/:id', async (req, res) => {
         const isOwner = userId && blog.author_id === userId;
 
         if (isOwner) {
-            // Owner can see everything (draft or published)
+            // Owner sees the DRAFT version (working copy)
+            // This allows them to continue editing even if a published version exists
             res.json(blog);
         } else {
-            // Public Viewer: Only see published blogs
+            // Public Viewer: Only see published blogs with PUBLISHED version
             if (!blog.published) {
                 return res.status(404).json({ error: 'Blog not found' });
             }
-            res.json(blog);
+            // Return the published version (frozen snapshot)
+            res.json({
+                ...blog,
+                title: blog.published_title || blog.title,
+                content: blog.published_content || blog.content,
+                cover_image_url: blog.published_cover_image_url || blog.cover_image_url
+            });
         }
 
     } catch (err) {
@@ -1588,18 +1595,26 @@ app.post('/api/blogs', verifyToken, async (req, res) => {
     try {
         const id = uuidv4();
 
-        // If published=true, we sync the published_ columns.
-        // If false, we set them to null? No, for a NEW post, they are null if draft.
-        // If published=true, we set boolean=true.
+        // Dual-version system:
+        // - Draft columns (title, content, cover_image_url): Working copy for the author
+        // - Published columns (published_title, published_content, published_cover_image_url): Live version for readers
+        // - published boolean: Controls visibility to public
 
         const is_pub = !!published;
+
+        // If publishing immediately, set both draft and published versions
+        const p_title = published ? title : null;
+        const p_content = published ? content : null;
+        const p_cover = published ? (cover_image_url || null) : null;
 
         await pool.execute(
             `INSERT INTO blogs
             (id, author_id, title, content, cover_image_url, loop_video_url, published,
+                published_title, published_content, published_cover_image_url,
                 created_at, updated_at)
-        VALUES(?, ?, ?, ?, ?, ?, ?, NOW(), NOW())`,
-            [id, req.userId, title, content, cover_image_url || null, loop_video_url || null, is_pub]
+        VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())`,
+            [id, req.userId, title, content, cover_image_url || null, loop_video_url || null, is_pub,
+                p_title, p_content, p_cover]
         );
 
         const [newBlog] = await pool.query('SELECT * FROM blogs WHERE id = ?', [id]);
@@ -1628,23 +1643,22 @@ app.put('/api/blogs/:id', verifyToken, async (req, res) => {
         let params = [];
 
         if (published) {
-            // User clicked "Publish": Update content and set Published=True.
+            // User clicked "Publish": Update BOTH draft and published versions, set published=TRUE
             query = `UPDATE blogs SET
         title = ?, content = ?, cover_image_url = ?, loop_video_url = ?,
+            published_title = ?, published_content = ?, published_cover_image_url = ?,
             published = TRUE,
             updated_at = NOW() 
                      WHERE id = ? `;
             params = [
                 title, content, cover_image_url || null, loop_video_url || null,
+                title, content, cover_image_url || null,
                 id
             ];
         } else {
-            // User clicked "Save Draft": Update Draft only. Leave Published cols alone. Leave Published Boolean alone?
-            // User requirement: "Saved as draft and only when clicked on publish it should be updated"
-            // This implies the boolean state might stay TRUE (Live site exists) but we don't update it.
-            // OR if it was never published, it stays FALSE.
-            // So we DO NOT change the 'published' boolean here, unless we want to force Unpublish?
-            // Assuming "Save Draft" just means "Save my work", not "Unpublish".
+            // User clicked "Save Draft": Update ONLY draft columns
+            // Published columns remain frozen (readers still see the old version)
+            // Published boolean stays as-is
 
             query = `UPDATE blogs SET
         title = ?, content = ?, cover_image_url = ?, loop_video_url = ?,
