@@ -45,7 +45,7 @@ export const Navbar = () => {
           {/* Logo */}
           <Link to="/" className="flex items-center gap-2">
             <img src={logo} alt="HSM-Developer Logo" className="h-9 w-9" />
-            <span className="font-semibold text-lg">HSM-Developer</span>
+            <span className="font-semibold text-lg">HSM-Developer-Hub</span>
           </Link>
 
           {/* Desktop Navigation */}
