@@ -12,10 +12,13 @@ import Resources from "./pages/Resources";
 import Community from "./pages/Community";
 import Blog from "./pages/Blog";
 import BlogNew from "./pages/BlogNew";
+import BlogPost from "./pages/BlogPost";
+import BlogEdit from "./pages/BlogEdit";
 import Profile from "./pages/Profile";
 import Settings from "./pages/Settings";
 import Legal from "./pages/Legal";
 import NotFound from "./pages/NotFound";
+import VerifyEmail from "./pages/VerifyEmail";
 
 const queryClient = new QueryClient();
 
@@ -30,11 +33,14 @@ const App = () => (
             <Routes>
               <Route path="/" element={<Index />} />
               <Route path="/auth" element={<Auth />} />
+              <Route path="/verify-email" element={<VerifyEmail />} />
               <Route path="/events" element={<Events />} />
               <Route path="/resources" element={<Resources />} />
               <Route path="/community" element={<Community />} />
               <Route path="/blog" element={<Blog />} />
               <Route path="/blog/new" element={<BlogNew />} />
+              <Route path="/blog/:id" element={<BlogPost />} />
+              <Route path="/blog/:id/edit" element={<BlogEdit />} />
               <Route path="/profile" element={<Profile />} />
               <Route path="/settings" element={<Settings />} />
               <Route path="/privacy" element={<Legal />} />

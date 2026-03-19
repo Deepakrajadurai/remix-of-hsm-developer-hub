@@ -63,24 +63,24 @@ export const Hero = () => {
             {/* Cyan Glow Backlight */}
             <div className="absolute w-[80%] aspect-square rounded-full bg-accent/30 dark:bg-accent/25 blur-3xl" />
             <div className="absolute w-[60%] aspect-square rounded-full bg-accent/20 dark:bg-accent/15 blur-2xl" />
-            
+
             {/* Theme-Based Image Switcher */}
             <div className="relative w-full flex items-center justify-center">
               {/* Light Mode Globe */}
-              <img 
-                src={heroNetworkLight} 
-                alt="Digital connectivity network illustration representing the developer community" 
+              <img
+                src={heroNetworkLight}
+                alt="Digital connectivity network illustration representing the developer community"
                 className="block dark:hidden w-full h-auto object-contain z-10"
                 style={{
                   maskImage: 'radial-gradient(circle, black 50%, transparent 100%)',
                   WebkitMaskImage: 'radial-gradient(circle, black 50%, transparent 100%)',
                 }}
               />
-              
+
               {/* Dark Mode Globe */}
-              <img 
-                src={heroNetworkDark} 
-                alt="Digital connectivity network illustration representing the developer community" 
+              <img
+                src={heroNetworkDark}
+                alt="Digital connectivity network illustration representing the developer community"
                 className="hidden dark:block w-full h-auto object-contain z-10"
                 style={{
                   maskImage: 'radial-gradient(circle, black 35%, transparent 70%)',
