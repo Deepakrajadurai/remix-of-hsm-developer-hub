@@ -12,12 +12,10 @@ const legalLinks = [
   { name: 'Privacy Policy', path: '/privacy' },
   { name: 'Terms of Service', path: '/terms' },
   { name: 'Imprint', path: '/imprint' },
-];
+]; 
 
 const socialLinks = [
-  { name: 'GitHub', icon: Github, url: 'https://github.com/hsm-developer' },
-  { name: 'LinkedIn', icon: Linkedin, url: 'https://linkedin.com/company/hsm-developer' },
-  { name: 'Twitter', icon: Twitter, url: 'https://twitter.com/hsm_developer' },
+ 
   { name: 'Email', icon: Mail, url: 'mailto:contact@hsm-developer.de' },
 ];
 
@@ -70,11 +68,12 @@ export const Footer = () => {
             </ul>
           </div>
 
-          {/* Column 3: Legal */}
+         {/* Column 3: Legal*/ }
           <div>
-            <h3 className="font-semibold mb-4">Legal</h3>
+            <h3 className="font-semibold mb-4">Contributers</h3>
             <ul className="space-y-2">
-              {legalLinks.map((link) => (
+              
+              {/* {legalLinks.map((link) => (
                 <li key={link.path}>
                   <Link
                     to={link.path}
@@ -83,24 +82,22 @@ export const Footer = () => {
                     {link.name}
                   </Link>
                 </li>
-              ))}
-            </ul>
+              )) */}
+            </ul> 
           </div>
 
           {/* Column 4: Funding */}
           <div>
-            <h3 className="font-semibold mb-4">Funding & Support</h3>
+            <h3 className="font-semibold mb-4">Supported by</h3>
             <p className="text-sm text-muted-foreground mb-4">
-              This project is funded by the European Regional Development Fund (ERDF) 
+              This project is supported by the European Regional Development Fund (ERDF) 
               and the Free State of Thuringia.
             </p>
-            <div className="flex items-center gap-4">
-              <div className="w-12 h-8 rounded bg-muted flex items-center justify-center">
-                <span className="text-xs font-bold text-muted-foreground">EU</span>
-              </div>
-              <div className="w-12 h-8 rounded bg-muted flex items-center justify-center">
-                <span className="text-xs font-bold text-muted-foreground">TH</span>
-              </div>
+            <div className="grid grid-cols-2 gap-4">
+              <img src="/EU Logo 2.png" alt="European Union logo"className="w-24 h-24 object-contain" />
+              <img src="/Th logo 2.png" alt="Free State of Thuringia logo" className="w-24 h-24 object-contain" />
+              <img src="/hs Logo2.png" alt="Hochschule Schmalkalden logo" className="w-24 h-24 object-contain" />
+              <img src="/Wort Logo 2.png" alt="Wort logo" className="w-24 h-24 object-contain" />
             </div>
           </div>
         </div>

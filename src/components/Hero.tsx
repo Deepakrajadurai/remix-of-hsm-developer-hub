@@ -5,6 +5,8 @@ import heroNetworkDark from '@/assets/hero-network.png';
 import heroNetworkLight from '@/assets/hero-network-light.png';
 import logo from '@/assets/logo.png';
 
+
+
 export const Hero = () => {
   return (
     <section className="relative min-h-screen flex items-center pt-20 bg-background">
@@ -17,15 +19,16 @@ export const Hero = () => {
       <div className="container mx-auto px-4 relative z-10">
         <div className="grid lg:grid-cols-2 gap-12 lg:gap-16 items-center">
           {/* Left Column - Text & Actions */}
-          <div className="text-left order-2 lg:order-1">
+          <div className="text-left order-2 lg:order-1"> 
             {/* Logo + Badge Row */}
             <div className="flex items-center gap-4 mb-6 animate-fade-in">
               <img src={logo} alt="HSM-Developer Community Logo" className="h-16 w-16" />
-              <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-accent/10 text-accent text-sm font-medium">
+                <div className="inline-flex items-center gap-2 px-2 py-2 rounded-full bg-accent/10 text-accent text-sm font-medium">
                 <span className="w-2 h-2 rounded-full bg-accent animate-pulse" />
-                Open for new members
-              </div>
-            </div>
+                <h1 className="text-1xl font-bold mb-2">
+                Join our Community!</h1>
+              </div> 
+            </div> 
 
             {/* Headline */}
             <h1 className="text-4xl md:text-5xl lg:text-6xl font-bold text-primary mb-4 animate-slide-up">
@@ -44,15 +47,14 @@ export const Hero = () => {
 
             {/* CTAs */}
             <div className="flex flex-wrap gap-4 animate-slide-up" style={{ animationDelay: '0.3s' }}>
-              <Link to="/auth?mode=signup">
-                <Button variant="gradient" size="lg" className="gap-2">
-                  Join the Community
-                  <ArrowRight className="h-5 w-5" />
+              <Link to="/events">
+                <Button color= "Black" size="lg" className="gap-2">
+                  Explore Events
                 </Button>
               </Link>
-              <Link to="/events">
-                <Button variant="outline" size="lg">
-                  Explore Events
+              <Link to="/profile">
+                <Button variant="gradient" size="lg" className="gap-2">
+                  Join The Community
                 </Button>
               </Link>
             </div>

@@ -1,33 +1,33 @@
 export const Sponsors = () => {
   const sponsors = [
-    { name: 'Hochschule Schmalkalden', abbreviation: 'HSM' },
-    { name: 'WORT', abbreviation: 'WORT' },
-    { name: 'Thüringen', abbreviation: 'TH' },
-    { name: 'European Union', abbreviation: 'EU' },
+    { name: 'Hochschule Schmalkalden', logo: '/hs Logo2.png' },
+    { name: 'WORT', logo: '/Wort Logo 2.png' },
+    { name: 'Thüringen', logo: '/Th logo 2.png' },
+    { name: 'European Union', logo: '/EU Logo 2.png' },
   ];
 
   return (
     <section className="py-12 border-t border-b border-border bg-muted/30">
       <div className="container mx-auto px-4">
         <p className="text-center text-sm text-muted-foreground mb-8">
-          Funded and supported by
+          Supported by
         </p>
+
         <div className="flex flex-wrap items-center justify-center gap-8 md:gap-16">
           {sponsors.map((sponsor) => (
             <div
               key={sponsor.name}
-              className="flex items-center justify-center px-6 py-3 rounded-lg opacity-60 hover:opacity-100 transition-opacity"
+              className="flex flex-col items-center justify-center px-6 py-3 rounded-lg opacity-60 hover:opacity-100 transition-opacity"
             >
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-lg bg-muted flex items-center justify-center">
-                  <span className="text-xs font-bold text-muted-foreground">
-                    {sponsor.abbreviation}
-                  </span>
-                </div>
-                <span className="text-sm font-medium text-muted-foreground hidden sm:block">
-                  {sponsor.name}
-                </span>
-              </div>
+              <img
+                src={sponsor.logo}
+                alt={sponsor.name}
+                className="w-32 h-32 object-contain mb-2"
+              />
+
+              <span className="text-sm font-medium text-muted-foreground text-center">
+                {sponsor.name}
+              </span>
             </div>
           ))}
         </div>
