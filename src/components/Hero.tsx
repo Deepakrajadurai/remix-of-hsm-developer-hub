@@ -26,7 +26,7 @@ export const Hero = () => {
                 <div className="inline-flex items-center gap-2 px-2 py-2 rounded-full bg-accent/10 text-accent text-sm font-medium">
                 <span className="w-2 h-2 rounded-full bg-accent animate-pulse" />
                 <h1 className="text-1xl font-bold mb-2">
-                Join our Community!</h1>
+                Join the Community!</h1>
               </div> 
             </div> 
 
